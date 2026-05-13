@@ -1132,30 +1132,6 @@ app.get("/api/clusters", async (req, res) => {
   }
 });
 
-// ---------------------------------------------------------------------------
-// TEMPORARY SEED ENDPOINT — remove after historical data is uploaded
-// POST /admin/seed-data/<filename>  with Authorization: Bearer <SEED_TOKEN>
-// Body: raw parquet bytes (Content-Type: application/octet-stream)
-// ---------------------------------------------------------------------------
-const SEED_TOKEN = process.env.SEED_TOKEN || "";
-app.post(
-  "/admin/seed-data/:filename",
-  express.raw({ type: "application/octet-stream", limit: "100mb" }),
-  (req, res) => {
-    if (!SEED_TOKEN || req.headers.authorization !== `Bearer ${SEED_TOKEN}`) {
-      return res.status(401).json({ error: "unauthorized" });
-    }
-    const name = path.basename(req.params.filename);
-    if (!/^\d{4}-\d{2}-\d{2}\.parquet$/.test(name)) {
-      return res.status(400).json({ error: "filename must be YYYY-MM-DD.parquet" });
-    }
-    const dest = path.join(__dirname, "data", name);
-    fs.writeFileSync(dest, req.body);
-    console.log(`[seed] wrote ${req.body.length} bytes → ${dest}`);
-    res.json({ ok: true, file: name, bytes: req.body.length });
-  }
-);
-
 // Replay today's JSONL (if any) into the in-memory accumulator before we
 // start serving traffic. This makes the heatmap "warm" after a restart
 // instead of starting from zero. Idempotent — recordSample's per-cell cap
