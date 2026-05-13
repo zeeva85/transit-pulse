@@ -2043,3 +2043,27 @@ function bindNewSidebarControls() {
   updateBusArtStatus();
   setInterval(updateBusArtStatus, 60_000);
 }
+
+// ── Mobile sidebar drawer ─────────────────────────────────────────────────
+(function () {
+  const sidebar = document.getElementById("sidebar");
+  const btn     = document.getElementById("mobile-sidebar-btn");
+  if (!btn || !sidebar) return;
+  const mq = window.matchMedia("(max-width: 768px)");
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    sidebar.classList.toggle("mobile-open");
+  });
+  document.addEventListener("click", (e) => {
+    if (!mq.matches) return;
+    if (sidebar.classList.contains("mobile-open") &&
+        !sidebar.contains(e.target) && e.target !== btn) {
+      sidebar.classList.remove("mobile-open");
+    }
+  });
+  const dp = document.getElementById("heatmap-date-picker");
+  if (dp) dp.addEventListener("change", () => {
+    if (mq.matches) sidebar.classList.remove("mobile-open");
+  });
+})();
+

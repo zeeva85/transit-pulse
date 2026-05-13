@@ -1050,3 +1050,83 @@ body.light-mode .rollover-eta strong { color: #0969da; }
   margin-right: 6px;
   vertical-align: middle;
 }
+
+/* ================================================================
+   MOBILE LAYOUT  (≤ 768 px) — purely additive, no default rules touched
+   ================================================================ */
+
+@media (min-width: 769px) {
+  #mobile-sidebar-btn { display: none; }
+}
+
+@media (max-width: 768px) {
+
+  /* ── Body grid: single column ── */
+  body {
+    grid-template-columns: 1fr;
+    grid-template-rows: 70px 1fr;
+    grid-template-areas: "header" "main";
+  }
+
+  /* ── Header ── */
+  .bus-art { display: none; }
+  .header-right { display: contents; }
+  header { padding: 0 10px; justify-content: flex-start; gap: 6px; }
+  /* [⋮ filters] [KL.my…flex] [N buses·routes] [☀️] [☰ settings] */
+  #mobile-sidebar-btn { order: 1; }
+  .header-brand       { order: 2; flex: 1; min-width: 0; gap: 0; }
+  .header-stats       { order: 3; font-size: 11px; gap: 4px; flex-shrink: 0; }
+  #theme-toggle       { order: 4; }
+  #hamburger-btn      { order: 5; position: static; transform: none; }
+  .header-brand-meta h1 { font-size: 14px; }
+  .header-date { font-size: 12px; }
+  .header-updated { font-size: 10px; }
+
+  /* ── Sidebar: slide-in drawer from left ── */
+  #sidebar {
+    position: fixed;
+    top: 70px;
+    left: 0;
+    width: min(280px, 88vw);
+    height: calc(100vh - 70px);
+    z-index: 150;
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+    box-shadow: 4px 0 20px rgba(0, 0, 0, 0.65);
+  }
+  #sidebar.mobile-open { transform: translateX(0); }
+
+  /* ── Main: single column, map row 1, table row 2 ── */
+  #main { grid-template-columns: 1fr; padding: 10px; column-gap: 0; row-gap: 14px; }
+  #content-col   { grid-column: 1; grid-row: 1; }
+  #table-section { grid-column: 1; grid-row: 2; position: static; align-self: auto; }
+  #table-section .bus-table-wrap { max-height: 45vh; }
+  #heatmap-section, #dropdown-section, #timeline-section { grid-column: 1; }
+
+  /* ── Map height ── */
+  #map { height: 58vw; min-height: 260px; max-height: 60vh; }
+
+  /* ── Historical controls ── */
+  .view-toggle    { flex-wrap: wrap; gap: 6px; }
+  .period-buttons { flex-wrap: wrap; }
+  .period-btn     { flex: 1 1 calc(25% - 4px); min-width: 58px; font-size: 11px; padding: 4px 2px; }
+  .hour-range     { flex-wrap: wrap; gap: 6px; }
+  .hour-range input[type="range"] { width: 100%; max-width: 100%; }
+
+  /* ── Map overlays ── */
+  .map-overlay        { max-width: calc(50vw - 20px); padding: 5px 8px; font-size: 11px; }
+  #trail-color-caption { font-size: 10px; padding: 4px 7px; max-width: calc(100vw - 100px); line-height: 1.4; }
+  #map-legend         { flex-wrap: wrap; max-width: 160px; gap: 3px; font-size: 9px; }
+
+  /* ── Settings panel: full width ── */
+  .hamburger-panel { width: 100%; left: 0; }
+
+  /* ── Bus table ── */
+  table.bus-table { font-size: 11px; }
+  .bus-table .route-meta { font-size: 10px; }
+
+  /* ── Light mode ── */
+  body.light-mode #mobile-sidebar-btn { background: #f5f7fa; border-color: #d0d7de; color: #1f2328; }
+  body.light-mode #mobile-sidebar-btn:hover { background: #e8ecf0; }
+}
+
