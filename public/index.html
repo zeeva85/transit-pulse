@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>🚍 KL.my Realtime Bus Tracker</title>
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" />
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <header>
+    <div class="header-brand">
+      <div class="header-brand-meta">
+        <h1>KL.my Bus Tracker</h1>
+        <span id="header-date" class="header-date">—</span>
+        <span class="header-updated">Updated <span id="last-update">—</span></span>
+      </div>
+      <pre class="bus-art">   __________________________
+  (_________________________@)
+  /  |  |  |  |  |  |  |  || `\
+  |__|__|__|__|__|__|__|__||___\
+  |===================  404| : |`'-._
+ _|    .-.                 | : | ,===`\
+'=|___/.-.\________________|_:_|_/.-.\|
+      \'-'/                      \'-'/
+  kl   '-'                        '-'</pre>
+    </div>
+    <div class="header-right">
+      <div class="header-stats">
+        <span class="hstat"><strong id="bus-count">—</strong> buses</span>
+        <span class="hstat-sep">·</span>
+        <span class="hstat"><strong id="route-count">—</strong> routes</span>
+      </div>
+      <button id="theme-toggle" class="theme-toggle-btn" type="button" title="Toggle light/dark mode">
+        <svg id="icon-sun" viewBox="0 0 24 24" width="16" height="16" fill="#FFD60A" stroke="#FFD60A" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        <svg id="icon-moon" viewBox="0 0 24 24" width="16" height="16" fill="#7dd3fc" stroke="#7dd3fc" stroke-width="2" stroke-linecap="round" style="display:none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
+      <button id="hamburger-btn" class="hamburger-btn" type="button">&#9776;</button>
+    </div>
+    <div id="bus-day-road" class="bus-day-road">
+      <div id="bus-day-fill" class="bus-day-fill"></div>
+    </div>
+  </header>
+
+  <div id="hamburger-panel" class="hamburger-panel" hidden>
+    <h2>⚙️ Settings</h2>
+    <label>
+      Refresh interval (s)
+      <input id="interval" type="number" min="10" max="300" step="5" value="40" />
+    </label>
+    <label>
+      Map Style
+      <select id="map-style">
+        <option value="dark" selected>dark</option>
+        <option value="light">light</option>
+        <option value="road">road</option>
+        <option value="satellite">satellite</option>
+      </select>
+    </label>
+    <hr class="sidebar-sep" />
+    <h2>🔬 Clusters</h2>
+    <label>
+      <input id="cluster-on" type="checkbox" />
+      Cluster routes by speed pattern
+    </label>
+    <label>
+      <input id="cluster-hours-on" type="checkbox" />
+      Cluster hours by speed pattern
+    </label>
+    <label>
+      Distance
+      <select id="cluster-metric" disabled>
+        <option value="euclidean" selected>Euclidean</option>
+        <option value="correlation">Correlation</option>
+      </select>
+    </label>
+    <label>
+      K = <span id="cluster-k-value">6</span>
+      <input id="cluster-k" type="range" min="2" max="10" step="1" value="6" disabled />
+    </label>
+    <div id="cluster-status" class="meta">off</div>
+
+  </div>
+
+  <aside id="sidebar">
+    <!-- Hidden select kept for heatmap.js compatibility; calendar drives it -->
+    <select id="heatmap-date-picker" style="display:none">
+      <option value="today" selected>Today (live)</option>
+    </select>
+    <div class="date-cal-wrapper">
+      <button id="date-cal-trigger" class="date-cal-trigger" type="button">
+        <span id="date-cal-trigger-label">Today (live)</span>
+        <span class="date-cal-chevron">&#9660;</span>
+      </button>
+      <div id="date-calendar" class="date-calendar" hidden>
+        <button id="date-cal-live" class="date-cal-live-btn" type="button">Today (live)</button>
+        <div class="date-cal-nav">
+          <button id="date-cal-prev" class="date-cal-nav-btn" type="button">&#8249;</button>
+          <span id="date-cal-title" class="date-cal-title"></span>
+          <button id="date-cal-next" class="date-cal-nav-btn" type="button">&#8250;</button>
+        </div>
+        <div class="date-cal-weekdays">
+          <span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span>
+        </div>
+        <div id="date-cal-days" class="date-cal-days"></div>
+      </div>
+    </div>
+    <hr class="sidebar-sep" />
+    <label>
+      Speed Display Mode
+      <select id="speed-source">
+        <option value="trust" selected>Trust-Weighted</option>
+        <option value="kalman">Kalman Filtered</option>
+        <option value="corrected">Corrected GPS (outlier-clipped)</option>
+        <option value="calc">Calculated Displacement</option>
+        <option value="raw">Raw GPS</option>
+      </select>
+    </label>
+    <div id="correction-method-row">
+      <label>
+        Outlier Correction Method
+        <select id="correction-method">
+          <option value="iqr" selected>IQR (recommended)</option>
+          <option value="robust">Robust (median + IQR bounds)</option>
+          <option value="percentile">Percentile (5th–95th)</option>
+          <option value="zscore">Z-score (2.5σ)</option>
+          <option value="minmax">MinMax</option>
+        </select>
+      </label>
+    </div>
+
+    <hr class="sidebar-sep" />
+    <h2>🛤️ Path Trails</h2>
+
+    <label>
+      Show Trails For
+      <select id="trail-mode">
+        <option value="none">None</option>
+        <option value="all" selected>All Buses</option>
+        <option value="selected">Selected Bus Only</option>
+      </select>
+    </label>
+
+    <label>
+      Trail Color By
+      <select id="trail-color-by">
+        <option value="speed" selected>Speed (Traffic)</option>
+        <option value="time">Time (Fade)</option>
+      </select>
+    </label>
+
+    <label>
+      Bus color by
+      <select id="color-by">
+        <option value="speed" selected>Speed (traffic light)</option>
+        <option value="status">Movement (green/red)</option>
+      </select>
+    </label>
+
+    <label>
+      <input id="show-stationary" type="checkbox" checked />
+      Show stationary buses
+    </label>
+    <label>
+      <input id="hide-unknown" type="checkbox" />
+      Hide buses with unknown route
+    </label>
+
+
+    <div id="sidebar-timeline" hidden>
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
+        <span style="font-size:12px; font-weight:600; color:#cdd0d4;">Bus Timeline</span>
+        <button id="sidebar-timeline-close" type="button" style="background:transparent; border:none; color:#888; font-size:16px; cursor:pointer; padding:0 4px;">&#x2715;</button>
+      </div>
+      <select id="bus-dropdown" class="sidebar-timeline-dropdown">
+        <option value="">— Select a bus —</option>
+      </select>
+      <div class="timeline-stats sidebar-timeline-stats" id="timeline-stats" hidden>
+        <div class="stat"><div class="stat-label">Avg</div><div class="stat-value" id="stat-avg">—</div></div>
+        <div class="stat"><div class="stat-label">Max</div><div class="stat-value" id="stat-max">—</div></div>
+        <div class="stat"><div class="stat-label">Min</div><div class="stat-value" id="stat-min">—</div></div>
+        <div class="stat"><div class="stat-label">n</div><div class="stat-value" id="stat-n">—</div></div>
+      </div>
+      <div id="timeline-chart"></div>
+      <div id="timeline-empty" class="meta" style="padding: 10px 0; font-size: 11px; text-align: center;">
+        Select a bus to view its timeline.
+      </div>
+    </div>
+
+  </aside>
+
+  <main id="main">
+
+    <section id="table-section">
+      <h2 class="section-title">Bus Table</h2>
+      <div class="bus-table-search-row">
+        <input id="route-search" type="text" placeholder="Filter by route…" autocomplete="off" spellcheck="false" />
+        <span id="route-search-count" class="bus-table-search-count"></span>
+      </div>
+      <div class="bus-table-wrap">
+        <table class="bus-table">
+          <thead>
+            <tr>
+              <th>Route</th>
+              <th>Speed Trend</th>
+            </tr>
+          </thead>
+          <tbody id="bus-table-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <div id="content-col">
+
+    <section id="map-section">
+      <h2 class="section-title">Map</h2>
+      <div id="historical-controls" hidden>
+        <div class="view-toggle">
+          <div class="view-toggle-left">
+            <strong>View:</strong>
+            <button type="button" class="view-btn active" data-view="density">🟢 Density</button>
+            <button type="button" class="view-btn" data-view="speed">🚦 Speed (Traffic)</button>
+          </div>
+          <div id="view-state-buttons" class="view-state-buttons"></div>
+        </div>
+        <div class="period-buttons" id="period-buttons"></div>
+        <div class="hour-range" id="hour-range-row" hidden>
+          <label>From <span id="hour-min-label">00</span>:00</label>
+          <input type="range" id="hour-min" min="0" max="23" step="1" value="0" />
+          <label>to <span id="hour-max-label">23</span>:00</label>
+          <input type="range" id="hour-max" min="0" max="23" step="1" value="23" />
+        </div>
+        <div class="historical-caption" id="historical-caption"></div>
+      </div>
+      <div id="map">
+        <div id="cluster-filter" class="map-overlay" hidden>
+          <strong>Show clusters:</strong>
+          <div id="cluster-filter-chips"></div>
+        </div>
+        <div id="trail-color-caption" class="trail-legend" hidden></div>
+        <div id="map-legend" class="map-legend" hidden></div>
+        <div id="map-loading" hidden>
+          <div class="map-loading-inner">
+            <div class="map-loading-spinner"></div>
+            <span>Loading data…</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    </div><!-- #content-col -->
+
+    <section id="heatmap-section">
+      <div class="heatmap-toolbar">
+        <strong>Median speed heatmap</strong>
+        <label>
+          Mode
+          <select id="heatmap-mode">
+            <option value="trust" selected>Trust-Weighted</option>
+            <option value="kalman">Kalman (EKF)</option>
+            <option value="corrected">Corrected GPS</option>
+            <option value="calc">Calculated (Haversine / dt)</option>
+            <option value="raw">Raw GTFS</option>
+          </select>
+        </label>
+        <label>
+          Anchor
+          <select id="heatmap-anchor">
+            <option value="physical" selected>Physical</option>
+            <option value="pooled">Pooled median</option>
+          </select>
+        </label>
+        <label>
+          <input id="heatmap-stack" type="checkbox" />
+          Stack all 5 modes
+        </label>
+        <span id="heatmap-status" class="meta">accumulating samples…</span>
+      </div>
+      <div id="heatmap-chart"></div>
+    </section>
+
+    <section id="dropdown-section">
+      <h2 class="section-title">
+        Select a bus
+        <span class="hint">drives the detailed timeline below</span>
+      </h2>
+      <select id="bus-dropdown-bottom">
+        <option value="">— Select a bus —</option>
+      </select>
+    </section>
+
+    <section id="timeline-section">
+      <h2 class="section-title">Detailed Bus Timeline</h2>
+      <div class="timeline-stats" id="timeline-stats-bottom" hidden>
+        <div class="stat">
+          <div class="stat-label">Avg Speed</div>
+          <div class="stat-value" id="stat-avg-bottom">—</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Max Speed</div>
+          <div class="stat-value" id="stat-max-bottom">—</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Min Speed</div>
+          <div class="stat-value" id="stat-min-bottom">—</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Data Points</div>
+          <div class="stat-value" id="stat-n-bottom">—</div>
+        </div>
+      </div>
+      <div id="timeline-chart-bottom"></div>
+      <div id="timeline-empty-bottom" class="meta" style="padding: 30px; text-align: center;">
+        Select a bus from the dropdown above to view its detailed timeline.
+      </div>
+    </section>
+
+  </main>
+
+<div id="rollover-overlay" hidden>
+  <div class="rollover-card">
+    <div class="rollover-spinner"></div>
+    <div class="rollover-text">
+      <strong>Daily rollover in progress</strong>
+      <span>Archiving yesterday's data — live tracking will resume shortly.</span>
+      <span class="rollover-eta">Back in approximately <strong id="rollover-countdown">—</strong></span>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+  <script src="https://unpkg.com/deck.gl@9.0.32/dist.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+  <script src="./heatmap-bins.js"></script>
+  <script src="./heatmap.js"></script>
+  <script src="./cluster-palette.js"></script>
+  <script src="./historical-view.js"></script>
+  <script src="./timeline-chart.js"></script>
+  <script src="./bus-table.js"></script>
+  <script src="./main.js"></script>
+</body>
+</html>

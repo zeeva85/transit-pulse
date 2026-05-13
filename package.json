@@ -1,0 +1,22 @@
+{
+  "name": "busjs",
+  "version": "0.1.0",
+  "description": "RapidKL bus tracker — JavaScript port of the Streamlit app (MVP).",
+  "main": "server.js",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "@dsnp/parquetjs": "^1.8.7",
+    "csv-parse": "^5.5.6",
+    "express": "^4.19.2",
+    "gtfs-realtime-bindings": "^1.1.1",
+    "hyparquet": "^1.25.8",
+    "node-fetch": "^2.7.0"
+  }
+}

@@ -1,0 +1,70 @@
+node_modules/
+
+# Environment & secrets (catch-all + explicit overrides)
+.env
+.env.*
+!.env.example
+*.env
+secrets.json
+secrets.*.json
+config.local.*
+
+# Runtime data
+data/
+*.jsonl
+*.parquet
+
+# Learned/generated GTFS supplements
+gtfs_static/extended_shapes.txt
+gtfs_static/extended_routes.txt
+gtfs_static/unknown_observations.*
+
+# Credentials & keys (never want these in any repo, ever)
+*.pem
+*.key
+*.crt
+*.cer
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+id_ecdsa*
+.ssh/
+.npmrc
+.yarnrc
+.yarnrc.yml
+.netrc
+
+# OS / editor cruft
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+*.log
+npm-debug.log*
+*.swp
+*.swo
+.vscode/
+.idea/
+.history/
+
+# Data archives / binary dumps
+*.gz
+*.tar
+*.tgz
+*.zip
+*.bz2
+*.pb
+
+# Build artifacts (future-proof)
+dist/
+build/
+coverage/
+.cache/
+tmp/
+temp/
+
+# Claude assistant files
+CLAUDE.md
+CLAUDE.local.md
+.claude/
