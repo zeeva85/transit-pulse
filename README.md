@@ -2,7 +2,7 @@
 
 A live map and historical analytics view for Kuala Lumpur's RapidKL bus network, built on Malaysia's open GTFS-Realtime feed.
 
-GTFS-Realtime is the open standard for transit feeds. The RapidKL data is published by Malaysia's open data portal at [data.gov.my](https://data.gov.my).
+GTFS-Realtime is the open standard for transit feeds. The RapidKL data is published by Malaysia's open data portal.
 
 ## Features
 
