@@ -1,4 +1,4 @@
-# KL Bus Tracker
+# Transit Pulse .MY
 
 A live map and historical analytics view for Kuala Lumpur's RapidKL bus network, built on Malaysia's open GTFS-Realtime feed.
 
@@ -32,8 +32,8 @@ GTFS-Realtime is the open standard for transit feeds. The RapidKL data is publis
 ## Running locally
 
 ```bash
-git clone https://github.com/<your-username>/kl-bus-tracker.git
-cd kl-bus-tracker
+git clone https://github.com/zeeva85/transit-pulse.git
+cd transit-pulse
 npm install
 cp .env.example .env
 node server.js
