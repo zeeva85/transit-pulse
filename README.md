@@ -20,7 +20,7 @@ GTFS-Realtime is the open standard for transit feeds. The RapidKL data is publis
 
 **Storage** — JSONL append-only for live ingest, Parquet for daily archives
 
-## Notable engineering
+## Experimental features
 
 - **Four-state Extended Kalman Filter** for position and velocity, with divergence reset and GPS-jump gating
 - **Five outlier-correction methods** (IQR, robust, percentile, z-score, min-max) selectable at runtime
@@ -28,6 +28,9 @@ GTFS-Realtime is the open standard for transit feeds. The RapidKL data is publis
 - **Trail snapping** with perpendicular projection and 30 m shape-variant stickiness
 - **Cross-day position model** — three-tier fallback with fractional bucket interpolation; cleans bad GPS without modifying raw lat/lon
 - **Learned-route pipeline** — buses with unknown routes accumulate observations and graduate to supplementary GTFS shapes after three days and 100+ positions
+- 5-mode speed heatmap across routes × hours-of-day — currently broken.
+- - Hour-of-day clustering across routes.
+
 
 ## Running locally
 
@@ -47,13 +50,6 @@ No build step. The frontend uses CDN-hosted libraries.
 - Learned-route deduplication is incomplete. Two buses covering the same unknown route can produce near-identical learned shapes.
 - Live trails ignore learned shapes until next-day augmentation.
 - Short connector lines may appear at terminus turnarounds where buses transition between shape variants. Capped at 3 km.
-
-## Experimental
-
-- Speed display mode (per-bus speed colouring on the map).
-- 5-mode speed heatmap across routes × hours-of-day — currently broken.
-- Pooled-median anchor mode for the heatmap.
-- Hour-of-day clustering across routes.
 
 ## License
 
