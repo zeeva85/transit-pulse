@@ -4,6 +4,15 @@ A [live map](https://buses.seevasantindran.com) and historical analytics view fo
 
 GTFS-Realtime is the open standard for transit feeds. The RapidKL data is published by Malaysia's open data portal.
 
+![Historical density heatmap — all times, full Klang Valley](docs/historical-desktop-dark-density-heatmap-all-times.png)
+
+<p align="center">
+  <img src="docs/live-mobile-light-speed-dots.jpg" alt="Mobile — light mode live" width="35%">
+</p>
+
+![Live — speed-traffic trails](docs/live-desktop-dark-speed-trails.png)
+![Historical — speed heatmap PM Peak](docs/historical-desktop-dark-speed-heatmap-pm-peak.png)
+
 ## Features
 
 - Live tracking of every RapidKL bus, with trails snapped to GTFS route polylines
