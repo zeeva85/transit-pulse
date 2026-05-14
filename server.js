@@ -1173,6 +1173,21 @@ async function replayTodaysData() {
       trust: row.weighted_speed,
       corrected: row.speed_corrected,
     });
+    // Restore positionHistory so sparklines are warm immediately after
+    // restart — without this, sparklines stay blank until ~20 live ticks
+    // accumulate (~13 min at 40 s intervals).
+    const hist = positionHistory.get(row.bus_id) || [];
+    hist.push({
+      lat: row.lat,
+      lon: row.lon,
+      time: row.time,
+      speed: row.speed,
+      calculated_speed: row.calculated_speed,
+      speed_kalman: row.speed_kalman,
+      weighted_speed: row.weighted_speed,
+    });
+    while (hist.length > MAX_HISTORY) hist.shift();
+    positionHistory.set(row.bus_id, hist);
     rowCount += 1;
   });
   if (rowCount > 0) {
