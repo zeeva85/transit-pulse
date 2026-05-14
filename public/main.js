@@ -2027,7 +2027,7 @@ function bindNewSidebarControls() {
           // Was showing — rollover just finished; reload fresh data
           rolloverOverlay.hidden = true;
           clearInterval(rolloverCountdownTimer);
-          fetchAndRender();
+          refreshOnce();
         }
         // Poll slowly when idle
         rolloverPollTimer = setTimeout(pollRollover, 60_000);
