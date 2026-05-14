@@ -250,35 +250,6 @@
 
     </div><!-- #content-col -->
 
-    <section id="heatmap-section">
-      <div class="heatmap-toolbar">
-        <strong>Median speed heatmap</strong>
-        <label>
-          Mode
-          <select id="heatmap-mode">
-            <option value="trust" selected>Trust-Weighted</option>
-            <option value="kalman">Kalman (EKF)</option>
-            <option value="corrected">Corrected GPS</option>
-            <option value="calc">Calculated (Haversine / dt)</option>
-            <option value="raw">Raw GTFS</option>
-          </select>
-        </label>
-        <label>
-          Anchor
-          <select id="heatmap-anchor">
-            <option value="physical" selected>Physical</option>
-            <option value="pooled">Pooled median</option>
-          </select>
-        </label>
-        <label>
-          <input id="heatmap-stack" type="checkbox" />
-          Stack all 5 modes
-        </label>
-        <span id="heatmap-status" class="meta">accumulating samples…</span>
-      </div>
-      <div id="heatmap-chart"></div>
-    </section>
-
     <section id="dropdown-section">
       <h2 class="section-title">
         Select a bus
@@ -313,6 +284,35 @@
       <div id="timeline-empty-bottom" class="meta" style="padding: 30px; text-align: center;">
         Select a bus from the dropdown above to view its detailed timeline.
       </div>
+    </section>
+
+    <section id="heatmap-section">
+      <div class="heatmap-toolbar">
+        <strong>Median speed heatmap</strong>
+        <label>
+          Mode
+          <select id="heatmap-mode">
+            <option value="trust" selected>Trust-Weighted</option>
+            <option value="kalman">Kalman (EKF)</option>
+            <option value="corrected">Corrected GPS</option>
+            <option value="calc">Calculated (Haversine / dt)</option>
+            <option value="raw">Raw GTFS</option>
+          </select>
+        </label>
+        <label>
+          Anchor
+          <select id="heatmap-anchor">
+            <option value="physical" selected>Physical</option>
+            <option value="pooled">Pooled median</option>
+          </select>
+        </label>
+        <label>
+          <input id="heatmap-stack" type="checkbox" />
+          Stack all 5 modes
+        </label>
+        <span id="heatmap-status" class="meta">accumulating samples…</span>
+      </div>
+      <div id="heatmap-chart"></div>
     </section>
 
   </main>
