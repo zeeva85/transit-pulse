@@ -136,6 +136,8 @@ const state = {
   routeShapes: {},   // shape_id -> [[lon, lat], …]
   routeOf: {},       // shape_id -> route_label
   _lastRouteFetchKey: "", // serialised sorted route list, guards redundant fetches
+  autoSwitchedToHistorical: false,
+  liveCheckHandle: null,
 };
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -1413,11 +1415,66 @@ function setMapLoading(on) {
   if (el) el.hidden = !on;
 }
 
+function showAutoSwitchNotice(date) {
+  let el = document.getElementById("auto-switch-notice");
+  if (!el) {
+    el = document.createElement("span");
+    el.id = "auto-switch-notice";
+    el.style.cssText = "font-size:11px;color:#e3b341;opacity:0.9;";
+    document.querySelector(".header-brand-meta")?.appendChild(el);
+  }
+  el.textContent = `⚠ No live service · showing ${date}`;
+  el.hidden = false;
+}
+
+function hideAutoSwitchNotice() {
+  const el = document.getElementById("auto-switch-notice");
+  if (el) el.hidden = true;
+}
+
+async function maybeAutoSwitchToHistorical() {
+  try {
+    const res = await fetch("/api/dates");
+    if (!res.ok) return false;
+    const { dates } = await res.json();
+    const todayKL = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kuala_Lumpur" }).format(new Date());
+    const best = (dates || []).find(d => d.date !== todayKL);
+    if (!best) return false;
+    state.autoSwitchedToHistorical = true;
+    showAutoSwitchNotice(best.date);
+    window._calendarSetDate(best.date);
+    // Poll live quietly in the background; switch back when buses return.
+    if (state.liveCheckHandle) clearInterval(state.liveCheckHandle);
+    state.liveCheckHandle = setInterval(async () => {
+      try {
+        const r = await fetch(`/api/buses?interval=${state.intervalSec}`);
+        if (!r.ok) return;
+        const d = await r.json();
+        if (!d.is_historical && (d.buses || []).length > 0) {
+          clearInterval(state.liveCheckHandle);
+          state.liveCheckHandle = null;
+          state.autoSwitchedToHistorical = false;
+          hideAutoSwitchNotice();
+          window._calendarSetDate("today");
+        }
+      } catch { /* network blip */ }
+    }, Math.max(state.intervalSec, 60) * 1000);
+    return true;
+  } catch (err) {
+    console.warn("auto-switch failed", err);
+    return false;
+  }
+}
+
 async function refreshOnce() {
   const historical = isHistoricalDate();
   if (historical) setMapLoading(true);
   try {
     await fetchBuses();
+    if (!isHistoricalDate() && state.buses.length === 0 && !state.autoSwitchedToHistorical) {
+      const switched = await maybeAutoSwitchToHistorical();
+      if (switched) return;
+    }
     await fetchShapeRouteIndex();
     rebuildLayers();
     // Refresh dependent views.
@@ -1754,6 +1811,9 @@ function initDateCalendar() {
   const observer = new MutationObserver(() => { if (!cal.hidden) render(); updateTriggerLabel(dp.value); });
   observer.observe(dp, { childList: true });
 
+  // Expose programmatic date switch for auto-switch feature.
+  window._calendarSetDate = setDate;
+
   // Expose for syncPicker to jump viewport to a restored date.
   window._calendarRender = (dateStr) => {
     if (dateStr && dateStr !== "today") {
@@ -1773,6 +1833,11 @@ function bindDatePickerToMap() {
   dp.addEventListener("change", async (e) => {
     state.date = e.target.value || "today";
     localStorage.setItem("busjs-date", state.date);
+    // User manually picked a date — cancel background live-check.
+    if (!state.autoSwitchedToHistorical && state.liveCheckHandle) {
+      clearInterval(state.liveCheckHandle);
+      state.liveCheckHandle = null;
+    }
     // Each new date gets its own density threshold baseline and route shapes.
     state.densityThresholds = null;
     state._lastRouteFetchKey = "";
