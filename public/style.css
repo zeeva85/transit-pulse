@@ -1100,7 +1100,7 @@ body.light-mode .rollover-eta strong { color: #0969da; }
   #main { grid-template-columns: 1fr; padding: 10px; column-gap: 0; row-gap: 14px; }
   #content-col   { grid-column: 1; grid-row: 1; }
   #table-section { grid-column: 1; grid-row: 2; position: static; align-self: auto; }
-  #table-section .bus-table-wrap { max-height: 300px; }
+  #table-section .bus-table-wrap { flex: none; height: 300px; max-height: 300px; }
   #heatmap-section, #dropdown-section, #timeline-section { grid-column: 1; }
 
   /* ── Map height ── */
