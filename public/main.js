@@ -1415,15 +1415,10 @@ function setMapLoading(on) {
   if (el) el.hidden = !on;
 }
 
-function showAutoSwitchNotice(date) {
-  let el = document.getElementById("auto-switch-notice");
-  if (!el) {
-    el = document.createElement("span");
-    el.id = "auto-switch-notice";
-    el.style.cssText = "font-size:11px;color:#e3b341;opacity:0.9;";
-    document.querySelector(".header-brand-meta")?.appendChild(el);
-  }
-  el.textContent = `⚠ No live service · showing ${date}`;
+function showAutoSwitchNotice() {
+  const el = document.getElementById("auto-switch-notice");
+  if (!el) return;
+  el.textContent = "⚠ No live service";
   el.hidden = false;
 }
 
@@ -1442,7 +1437,7 @@ async function maybeAutoSwitchToHistorical() {
     if (!best) return false;
     state.autoSwitchedToHistorical = true;
     updateBusArtStatus();
-    showAutoSwitchNotice(best.date);
+    showAutoSwitchNotice();
     window._calendarSetDate(best.date);
     // Poll live quietly in the background; switch back when buses return.
     if (state.liveCheckHandle) clearInterval(state.liveCheckHandle);
