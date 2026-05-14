@@ -1441,6 +1441,7 @@ async function maybeAutoSwitchToHistorical() {
     const best = (dates || []).find(d => d.date !== todayKL);
     if (!best) return false;
     state.autoSwitchedToHistorical = true;
+    updateBusArtStatus();
     showAutoSwitchNotice(best.date);
     window._calendarSetDate(best.date);
     // Poll live quietly in the background; switch back when buses return.
@@ -1454,6 +1455,7 @@ async function maybeAutoSwitchToHistorical() {
           clearInterval(state.liveCheckHandle);
           state.liveCheckHandle = null;
           state.autoSwitchedToHistorical = false;
+          updateBusArtStatus();
           hideAutoSwitchNotice();
           window._calendarSetDate("today");
         }
@@ -1937,18 +1939,22 @@ function updateBusArtStatus() {
   const isActive = svcMin < SVC_DUR;
   const progress = Math.min(svcMin / SVC_DUR, 1);
 
+  // When auto-switched to historical (live feed returned 0 buses), show the
+  // ended state regardless of clock time — the two signals must agree.
+  const effectiveActive = isActive && !state.autoSwitchedToHistorical;
+
   // Colour the ASCII bus art.
   const busArt = document.querySelector(".bus-art");
   if (busArt) {
-    busArt.classList.toggle("bus-art--active", isActive);
-    busArt.classList.toggle("bus-art--ended",  !isActive);
+    busArt.classList.toggle("bus-art--active", effectiveActive);
+    busArt.classList.toggle("bus-art--ended",  !effectiveActive);
   }
 
   // Move the road fill.
   const fill = document.getElementById("bus-day-fill");
   if (fill) {
     fill.style.width = `${progress * 100}%`;
-    fill.classList.toggle("bus-day-fill--ended", !isActive);
+    fill.classList.toggle("bus-day-fill--ended", !effectiveActive);
   }
 }
 
