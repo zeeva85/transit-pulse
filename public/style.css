@@ -60,15 +60,6 @@ body.light-mode .bus-art.bus-art--ended  { color: #cc2222; text-shadow: none; }
   align-items: center;
   gap: 12px;
 }
-#auto-switch-notice {
-  position: absolute;
-  bottom: 6px;
-  right: 20px;
-  font-size: 11px;
-  color: #f85149;
-  pointer-events: none;
-}
-body.light-mode #auto-switch-notice { color: #cf222e; }
 .header-brand {
   display: flex;
   align-items: center;
