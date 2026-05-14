@@ -6,6 +6,7 @@
 const express = require("express");
 const fs = require("fs");
 const path = require("path");
+const { execSync } = require("child_process");
 const fetch = require("node-fetch");
 const { transit_realtime } = require("gtfs-realtime-bindings");
 const { parse } = require("csv-parse/sync");
@@ -47,6 +48,16 @@ const {
 } = require("./learned-shapes");
 
 const PORT = process.env.PORT || 3000;
+
+// Git SHA used as cache-bust query string for CSS/JS assets.
+// Falls back to a startup timestamp if git is unavailable.
+let BUILD_VERSION = Date.now().toString(36);
+try {
+  BUILD_VERSION = execSync("git rev-parse --short HEAD", {
+    cwd: __dirname,
+    stdio: ["pipe", "pipe", "ignore"],
+  }).toString().trim();
+} catch (_) {}
 const FEED_URL =
   "https://api.data.gov.my/gtfs-realtime/vehicle-position/prasarana" +
   "?category=rapid-bus-kl";
@@ -72,10 +83,28 @@ const MAX_HISTORY = 20;
 // matching Python `busapp/state.py:day_rollover`.
 
 const app = express();
+
+// Serve index.html with ?v=<git-sha> appended to all local CSS/JS URLs.
+// index.html itself is never cached so the new version string reaches the
+// browser on every deploy, forcing a cache miss on the renamed asset URL.
+const INDEX_PATH = path.join(__dirname, "public", "index.html");
+app.get(["/", "/index.html"], (_req, res) => {
+  const html = fs.readFileSync(INDEX_PATH, "utf8").replace(
+    /(<(?:link|script)[^>]+(?:href|src)=")(\.\/)?(\w[\w\-.]*\.(?:css|js))(")/g,
+    (_, prefix, _dot, file, suffix) =>
+      `${prefix}./${file}?v=${BUILD_VERSION}${suffix}`
+  );
+  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.send(html);
+});
+
+// CSS/JS assets: cache forever — safe because index.html now references them
+// with ?v=<git-sha>, so a new deploy produces a new URL = automatic cache bust.
 app.use(express.static(path.join(__dirname, "public"), {
   setHeaders(res, filePath) {
     if (filePath.endsWith(".css") || filePath.endsWith(".js")) {
-      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+      res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
     }
   },
 }));
