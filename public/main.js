@@ -166,10 +166,18 @@ async function fetchBuses() {
   document.getElementById("route-count").textContent = new Set(
     state.buses.map((b) => b.route)
   ).size;
-  document.getElementById("last-update").textContent =
-    data.is_historical
-      ? `${data.date} (historical)`
-      : state.lastFetch.toLocaleTimeString();
+  const mapDateLabel = document.getElementById("map-date-label");
+  const headerUpdated = document.querySelector(".header-updated");
+  if (data.is_historical) {
+    mapDateLabel.textContent = `Viewing ${data.date}`;
+    mapDateLabel.hidden = false;
+    headerUpdated.hidden = true;
+  } else {
+    mapDateLabel.hidden = true;
+    headerUpdated.hidden = false;
+    document.getElementById("last-update").textContent =
+      state.lastFetch.toLocaleTimeString();
+  }
   document.getElementById("header-date").textContent =
     new Intl.DateTimeFormat("en-GB", {
       timeZone: "Asia/Kuala_Lumpur",
