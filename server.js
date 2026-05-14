@@ -191,6 +191,11 @@ function reloadGtfsStatic() {
 
 const positionHistory = new Map(); // bus_id -> [{ lat, lon, time, speed, calculated_speed, speed_kalman, weighted_speed }]
 
+// Full-day speed timeline keyed by bus_id — no cap, accumulates all sessions
+// across the service day. Reset at midnight rollover. Fed to the sparkline in
+// the bus table so the trend covers the whole day, not just the last 20 ticks.
+const sparklineHistory = new Map(); // bus_id -> [{ time, speed, calculated_speed, speed_kalman, weighted_speed }]
+
 // Wholesale-replaced each tick — analogous to Python `st.session_state
 // .prev_positions`. EKF and calc-speed read from THIS, not positionHistory,
 // so a bus absent from the current feed loses its `prev` (Python parity:
@@ -287,6 +292,11 @@ function recordPositionAndComputeSpeed(busId, lat, lon, tMs, speedRaw, nowMs, pr
   while (hist.length > MAX_HISTORY) hist.shift();
   positionHistory.set(busId, hist);
 
+  // Full-day sparkline buffer — no cap, reset at midnight rollover.
+  const sl = sparklineHistory.get(busId) || [];
+  sl.push({ time: tMs, speed: speedRaw, calculated_speed: speedCalc, speed_kalman: ekfResult.filteredSpeedKmh, weighted_speed: trustResult.weighted });
+  sparklineHistory.set(busId, sl);
+
   // EXACT Python parity on rounding (busapp/speeds/trust.py:79-83 in the
   // rows.append() that builds the DataFrame):
   //   "calculated_speed": round(calculated_speed, 1) if not None else None
@@ -369,8 +379,9 @@ async function maybeRunDayRollover(nowMs) {
   // we follow suit — only the trust buffers and the live heatmap reset.
   clearTrustBuffers();
   clearLiveAccumulator();
+  sparklineHistory.clear();
   console.log(
-    `[rollover] KL date changed ${yesterday} → ${today}; cleared trust/heatmap state, augmenting yesterday…`
+    `[rollover] KL date changed ${yesterday} → ${today}; cleared trust/heatmap/sparkline state, augmenting yesterday…`
   );
 
   if (rolloverInFlight) return;
@@ -590,6 +601,7 @@ async function fetchFeed(cacheMs = FEED_CACHE_BASE_MS) {
       is_stale: pb.is_stale,
       age_seconds: pb.age_seconds,
       trail: pb._trail,
+      sparkline_trail: sparklineHistory.get(pb.bus_id) || [],
       snapped_trail: snapper.snapTrail(pb._trail, pb.route),
     });
   }
@@ -1173,9 +1185,8 @@ async function replayTodaysData() {
       trust: row.weighted_speed,
       corrected: row.speed_corrected,
     });
-    // Restore positionHistory so sparklines are warm immediately after
-    // restart — without this, sparklines stay blank until ~20 live ticks
-    // accumulate (~13 min at 40 s intervals).
+    // Restore positionHistory (map trail — last 20 points) and full-day
+    // sparklineHistory from today's JSONL so both are warm on restart.
     const hist = positionHistory.get(row.bus_id) || [];
     hist.push({
       lat: row.lat,
@@ -1188,6 +1199,10 @@ async function replayTodaysData() {
     });
     while (hist.length > MAX_HISTORY) hist.shift();
     positionHistory.set(row.bus_id, hist);
+
+    const sl = sparklineHistory.get(row.bus_id) || [];
+    sl.push({ time: row.time, speed: row.speed, calculated_speed: row.calculated_speed, speed_kalman: row.speed_kalman, weighted_speed: row.weighted_speed });
+    sparklineHistory.set(row.bus_id, sl);
     rowCount += 1;
   });
   if (rowCount > 0) {

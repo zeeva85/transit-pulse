@@ -56,7 +56,10 @@
   }
 
   function speedTrendBins(bus) {
-    const trail = bus.trail || [];
+    // Prefer full-day sparkline_trail; fall back to 20-point map trail.
+    const trail = (bus.sparkline_trail && bus.sparkline_trail.length > 0)
+      ? bus.sparkline_trail
+      : (bus.trail || []);
     if (trail.length === 0) return [];
     const binMs = 13 * 60_000;
     const anchorMs = klMidnightMs(trail[0].time);
