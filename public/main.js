@@ -2109,6 +2109,28 @@ function bindNewSidebarControls() {
   setInterval(updateBusArtStatus, 60_000);
 }
 
+// ── Mobile header: swap brand text → ASCII bus art after 10 s ────────────
+(function () {
+  const mq = window.matchMedia("(max-width: 768px)");
+  if (!mq.matches) return;
+  const meta = document.querySelector(".header-brand-meta");
+  const art  = document.querySelector(".bus-art");
+  if (!meta || !art) return;
+
+  setTimeout(() => {
+    meta.style.transition = "opacity 0.4s";
+    meta.style.opacity    = "0";
+    setTimeout(() => {
+      meta.style.display   = "none";
+      art.style.display    = "block";
+      art.style.opacity    = "0";
+      art.style.transition = "opacity 0.4s";
+      art.getBoundingClientRect(); // force reflow so transition fires
+      art.style.opacity    = "1";
+    }, 400);
+  }, 10000);
+})();
+
 // ── Mobile sidebar drawer ─────────────────────────────────────────────────
 (function () {
   const sidebar = document.getElementById("sidebar");
