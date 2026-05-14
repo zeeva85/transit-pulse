@@ -1097,10 +1097,10 @@ body.light-mode .rollover-eta strong { color: #0969da; }
   #sidebar.mobile-open { transform: translateX(0); }
 
   /* ── Main: single column, map row 1, table row 2 ── */
-  #main { grid-template-columns: 1fr; padding: 10px; column-gap: 0; row-gap: 14px; }
+  #main { grid-template-columns: 1fr; grid-template-rows: auto 360px; padding: 10px; column-gap: 0; row-gap: 14px; }
   #content-col   { grid-column: 1; grid-row: 1; }
-  #table-section { grid-column: 1; grid-row: 2; position: static; align-self: auto; }
-  #table-section .bus-table-wrap { max-height: 45vh; }
+  #table-section { grid-column: 1; grid-row: 2; position: static; align-self: start; }
+  #table-section .bus-table-wrap { flex: none; height: 280px; max-height: none; }
   #heatmap-section, #dropdown-section, #timeline-section { grid-column: 1; }
 
   /* ── Map height ── */
