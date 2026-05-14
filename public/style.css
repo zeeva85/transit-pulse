@@ -59,16 +59,14 @@ body.light-mode .bus-art.bus-art--ended  { color: #cc2222; text-shadow: none; }
   display: flex;
   align-items: center;
   gap: 12px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
 }
 #auto-switch-notice {
-  width: 100%;
-  order: 10;
+  position: absolute;
+  bottom: 6px;
+  right: 20px;
   font-size: 11px;
   color: #f85149;
-  text-align: right;
-  line-height: 1.2;
+  pointer-events: none;
 }
 body.light-mode #auto-switch-notice { color: #cf222e; }
 .header-brand {
