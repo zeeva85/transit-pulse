@@ -72,7 +72,13 @@ const MAX_HISTORY = 20;
 // matching Python `busapp/state.py:day_rollover`.
 
 const app = express();
-app.use(express.static(path.join(__dirname, "public")));
+app.use(express.static(path.join(__dirname, "public"), {
+  setHeaders(res, filePath) {
+    if (filePath.endsWith(".css") || filePath.endsWith(".js")) {
+      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    }
+  },
+}));
 
 // ──────────────────────────────────────────────────────────────────────────
 // Static GTFS lookups — loaded once at startup, kept in memory.
