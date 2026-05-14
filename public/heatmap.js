@@ -246,8 +246,8 @@
       orient: "horizontal",
       top: 6,
       left: "center",
-      pieces: bins.LEGEND_DOMAIN.map((label) => ({
-        value: label,
+      pieces: bins.LEGEND_DOMAIN.map((label, i) => ({
+        value: i,
         label,
         color: bins.LABEL_TO_COLOR[label],
       })),
@@ -304,7 +304,7 @@
       .map((c) => {
         const yi = hourToYIndex[c.h];
         if (yi == null) return null;
-        return [c.r, yi, c.bin, c.v, c.n, c.h];
+        return [c.r, yi, bins.LEGEND_DOMAIN.indexOf(c.bin), c.bin, c.v, c.n, c.h];
       })
       .filter(Boolean);
     const cluster = buildClusterStripe(routes);
@@ -414,10 +414,10 @@
             if (params.seriesName === "cluster") {
               return `<b>${routes[params.value[0]]}</b><br/>${params.value[2]}`;
             }
-            // Tuple: [r, yIndex, bin, v, n, rawHour]. Show raw hour in
-            // the tooltip so the value stays readable when the y-axis has
-            // been reordered by hour clustering.
-            const [r, , bin, v, n, rawHour] = params.value;
+            // Tuple: [r, yIndex, binIndex, bin, v, n, rawHour]. Show raw
+            // hour in the tooltip so the value stays readable when the
+            // y-axis has been reordered by hour clustering.
+            const [r, , , bin, v, n, rawHour] = params.value;
             return (
               `<b>${routes[r]}</b><br/>Hour ${String(rawHour).padStart(2, "0")}:00 · ` +
               `${data.mode}<br/>Median ${v != null ? v.toFixed(1) : "—"} km/h<br/>` +
@@ -475,8 +475,8 @@
           const remapped = routeIndex[md.routes[c.r]];
           const yi = hourToYIndex[c.h];
           if (yi == null) return null;
-          // Tuple: [r, yIndex, bin, v, n, mode, rawHour].
-          return [remapped, yi, c.bin, c.v, c.n, m, c.h];
+          // Tuple: [r, yIndex, binIndex, bin, v, n, mode, rawHour].
+          return [remapped, yi, bins.LEGEND_DOMAIN.indexOf(c.bin), c.bin, c.v, c.n, m, c.h];
         })
         .filter(Boolean);
     }
@@ -605,9 +605,9 @@
             if (params.seriesName === "cluster") {
               return `<b>${routes[params.value[0]]}</b><br/>${params.value[2]}`;
             }
-            // Stacked tuple: [r, yIndex, bin, v, n, mode, rawHour]. Show
-            // raw hour in the tooltip — y-axis may be reordered.
-            const [r, , bin, v, n, mode, rawHour] = params.value;
+            // Stacked tuple: [r, yIndex, binIndex, bin, v, n, mode, rawHour].
+            // Show raw hour in the tooltip — y-axis may be reordered.
+            const [r, , , bin, v, n, mode, rawHour] = params.value;
             return (
               `<b>${routes[r]}</b><br/>` +
               `${STACK_LABELS[mode]} · Hour ${String(rawHour).padStart(2, "0")}:00<br/>` +
