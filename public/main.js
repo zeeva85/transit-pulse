@@ -238,7 +238,7 @@ async function fetchClusters() {
       ? (data.hour_order || null)
       : null;
     if (window.busHeatmap) {
-      window.busHeatmap.setClusters(state.clusterByRoute);
+      window.busHeatmap.setClusters(state.clusterByRoute, state.clusterOrder);
       window.busHeatmap.setHourOrder(state.clusterHourOrder);
     }
     // If selection is empty, treat as "all on". When K changes we reset.
@@ -1591,8 +1591,9 @@ document.getElementById("show-stationary").addEventListener("change", (e) => {
 
 document.getElementById("cluster-on").addEventListener("change", async (e) => {
   state.clusterOn = e.target.checked;
-  document.getElementById("cluster-metric").disabled = !state.clusterOn;
-  document.getElementById("cluster-k").disabled = !state.clusterOn;
+  const eitherClusterOn = state.clusterOn || state.clusterHoursOn;
+  document.getElementById("cluster-metric").disabled = !eitherClusterOn;
+  document.getElementById("cluster-k").disabled = !eitherClusterOn;
   // Cluster-trail mode (Pass 29 parity): when clustering activates in
   // historical view, force OFF time filter + All-Buses trails so the map
   // shows the geographic footprint of each cluster.
@@ -1613,7 +1614,7 @@ document.getElementById("cluster-on").addEventListener("change", async (e) => {
     state.clustersSelected = new Set();
     rebuildClusterFilterUI();
     updateClusterStatus(null);
-    if (window.busHeatmap) window.busHeatmap.setClusters({});
+    if (window.busHeatmap) window.busHeatmap.setClusters({}, []);
   }
   rebuildLayers();
 });
@@ -1642,9 +1643,10 @@ const clusterHoursEl = document.getElementById("cluster-hours-on");
 if (clusterHoursEl) {
   clusterHoursEl.addEventListener("change", async (e) => {
     state.clusterHoursOn = e.target.checked;
-    // Distance-metric selector needs to be enabled if either toggle is on.
-    document.getElementById("cluster-metric").disabled =
-      !(state.clusterOn || state.clusterHoursOn);
+    // Distance-metric and K selectors need to be enabled if either toggle is on.
+    const eitherOn = state.clusterOn || state.clusterHoursOn;
+    document.getElementById("cluster-metric").disabled = !eitherOn;
+    document.getElementById("cluster-k").disabled = !eitherOn;
     if (state.clusterOn || state.clusterHoursOn) {
       await fetchClusters();
     } else {

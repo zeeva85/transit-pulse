@@ -74,6 +74,7 @@
   // Set by main.js whenever clustering changes; passed in via the
   // `clusters` arg to refresh() rather than imported globally.
   let lastClusterByRoute = {};
+  let lastClusterOrder = null;  // route labels in dendrogram leaf order
   // Optional [0..23] in clustered order. When null/length 0, y-axis stays
   // temporal. Mirrors Python settings.cluster_hours.
   let hourOrder = null;
@@ -144,8 +145,9 @@
 
   // main.js calls this with the current cluster map so the heatmap stripe
   // stays in sync with the map's cluster colors.
-  function setClusters(clusterByRoute) {
+  function setClusters(clusterByRoute, clusterOrder) {
     lastClusterByRoute = clusterByRoute || {};
+    lastClusterOrder = Array.isArray(clusterOrder) && clusterOrder.length ? clusterOrder : null;
     if (chart) refresh();
   }
 
@@ -280,9 +282,17 @@
   // Single-mode rendering
   // ────────────────────────────────────────────────────────────────────
 
+  function applyClusterOrder(sourceRoutes) {
+    if (!lastClusterOrder || !lastClusterOrder.length) return sourceRoutes;
+    const set = new Set(sourceRoutes);
+    const ordered = lastClusterOrder.filter((r) => set.has(r));
+    const seen = new Set(ordered);
+    return [...ordered, ...sourceRoutes.filter((r) => !seen.has(r))];
+  }
+
   function renderSingle(data) {
     const bins = window.HEATMAP_BINS;
-    const routes = data.routes || [];
+    const routes = applyClusterOrder(data.routes || []);
     if (routes.length === 0) {
       renderEmptyMessage(data);
       return;
@@ -296,11 +306,18 @@
     const hourToYIndex = Object.fromEntries(orderedHours.map((h, i) => [h, i]));
     const activeH = orderedHours.length || 1;
 
+    // c.r is a numeric index into data.routes (server alphabetical order).
+    // Remap to the display position in the (possibly cluster-reordered) routes.
+    const serverRoutes = data.routes || [];
+    const newXByRoute = Object.fromEntries(routes.map((r, i) => [r, i]));
+    const oldToNewX = serverRoutes.map((r) => newXByRoute[r]);
+
     const seriesData = cells
       .map((c) => {
+        const xi = oldToNewX[c.r];
         const yi = hourToYIndex[c.h];
-        if (yi == null) return null;
-        return [c.r, yi, bins.LEGEND_DOMAIN.indexOf(c.bin), c.bin, c.v, c.n, c.h];
+        if (xi == null || yi == null) return null;
+        return [xi, yi, bins.LEGEND_DOMAIN.indexOf(c.bin), c.bin, c.v, c.n, c.h];
       })
       .filter(Boolean);
     const cluster = buildClusterStripe(routes);
@@ -443,7 +460,7 @@
     for (const m of STACK_MODES) {
       for (const r of (data.per_mode[m].routes || [])) routeSet.add(r);
     }
-    const routes = [...routeSet].sort();
+    const routes = applyClusterOrder([...routeSet].sort());
     if (routes.length === 0) {
       renderEmptyMessage(data);
       return;
