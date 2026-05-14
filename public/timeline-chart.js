@@ -175,7 +175,10 @@
   // returns the speed value to plot for one trail entry — keyed to the
   // active speed-source setting in the parent app.
   function render(bus, modeLabel, getSpeed) {
-    const noTrail = !bus || !bus.trail || bus.trail.length === 0;
+    const fullTrail = bus && (
+      (bus.sparkline_trail && bus.sparkline_trail.length > 0) ? bus.sparkline_trail : bus.trail
+    );
+    const noTrail = !fullTrail || fullTrail.length === 0;
     if (noTrail) {
       const msg = bus
         ? `Bus ${bus.bus_id} has no trail data yet — wait a couple of ticks.`
@@ -191,7 +194,7 @@
       return;
     }
 
-    const points = binTrail(bus.trail, getSpeed);
+    const points = binTrail(fullTrail, getSpeed);
 
     if (points.length === 0) {
       const msg = `Bus ${bus.bus_id} has no ${modeLabel} readings yet.`;
