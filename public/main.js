@@ -1830,7 +1830,14 @@ function bindDatePickerToMap() {
   if (!dp) return;
   dp.addEventListener("change", async (e) => {
     state.date = e.target.value || "today";
-    localStorage.setItem("busjs-date", state.date);
+    // Only persist manual date picks — never persist auto-switch selections.
+    if (!state.autoSwitchedToHistorical) {
+      if (state.date && state.date !== "today") {
+        localStorage.setItem("busjs-date", state.date);
+      } else {
+        localStorage.removeItem("busjs-date");
+      }
+    }
     // User manually picked a date — cancel background live-check.
     if (!state.autoSwitchedToHistorical && state.liveCheckHandle) {
       clearInterval(state.liveCheckHandle);
@@ -1981,17 +1988,8 @@ async function start() {
   bindNewSidebarControls();
   bindHistoricalControls();
 
-  // Restore previously selected date from localStorage.
-  const savedDate = localStorage.getItem("busjs-date");
-  if (savedDate && savedDate !== "today") {
-    state.date = savedDate;
-    if (state.clusterOn) {
-      state.timeFilter = "OFF";
-    } else {
-      state.timeFilter = "All";
-    }
-    state.comparePeriods = [];
-  }
+  // Always start in live mode — try live first on every page load.
+  localStorage.removeItem("busjs-date");
 
   renderHistoricalControls();
   await refreshOnce();
