@@ -79,10 +79,8 @@
   let hourOrder = null;
 
   function mount(containerEl) {
-    console.log("[heatmap] mount called, containerEl=", containerEl, "echarts=", typeof echarts);
     if (chart) return;
     chart = echarts.init(containerEl, null, { renderer: "canvas" });
-    console.log("[heatmap] chart initialized:", !!chart);
     modeEl = document.getElementById("heatmap-mode");
     anchorEl = document.getElementById("heatmap-anchor");
     stackEl = document.getElementById("heatmap-stack");
@@ -175,7 +173,6 @@
   }
 
   async function refresh() {
-    console.log("[heatmap] refresh called, chart=", !!chart, "currentMode=", currentMode);
     if (!chart) return;
     try {
       const params = new URLSearchParams();
@@ -187,7 +184,6 @@
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
 
-      console.log("[heatmap] data:", { routes: data.routes?.length, cells: data.cells?.length, sampleCell: data.cells?.[0] });
       if (currentStack) renderStacked(data);
       else renderSingle(data);
 
