@@ -30,6 +30,7 @@ const {
   listDates,
   storeStats,
   klDate,
+  DATA_DIR,
 } = require("./store");
 const { computePooledMedians } = require("./pooled");
 const { createSnapper } = require("./snap");
@@ -1085,6 +1086,30 @@ app.get("/api/maintenance/status", (_req, res) => {
 
 app.get("/api/dates", (_req, res) => {
   res.json({ dates: listDates() });
+});
+
+// Stream a raw data file for a given date. Prefers .parquet; falls back to
+// .jsonl for today's live file. Used by the sync-data script to pull
+// accumulated data from any running instance (production → local, or
+// old host → new host at migration time).
+app.get("/api/data/:date", (req, res) => {
+  const date = req.params.date;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return res.status(400).json({ error: "date must be YYYY-MM-DD" });
+  }
+  const parquetPath = path.join(DATA_DIR, `${date}.parquet`);
+  const jsonlPath   = path.join(DATA_DIR, `${date}.jsonl`);
+  if (fs.existsSync(parquetPath)) {
+    res.setHeader("Content-Type", "application/octet-stream");
+    res.setHeader("Content-Disposition", `attachment; filename="${date}.parquet"`);
+    return fs.createReadStream(parquetPath).pipe(res);
+  }
+  if (fs.existsSync(jsonlPath)) {
+    res.setHeader("Content-Type", "application/x-ndjson");
+    res.setHeader("Content-Disposition", `attachment; filename="${date}.jsonl"`);
+    return fs.createReadStream(jsonlPath).pipe(res);
+  }
+  res.status(404).json({ error: `no data for ${date}` });
 });
 
 app.get("/api/rollover-status", (_req, res) => {
