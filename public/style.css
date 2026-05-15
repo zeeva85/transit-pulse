@@ -475,16 +475,17 @@ body.light-mode .date-cal-day.selected { background: #c0deff !important; color: 
 #table-section {
   grid-column: 2;
   grid-row: 1;
+  align-self: start;
   display: flex;
   flex-direction: column;
   position: sticky;
   top: 16px;
-  max-height: calc(100vh - 102px);
 }
 
 #table-section .bus-table-wrap {
-  height: calc(60vh - 42px);
-  min-height: 378px;
+  flex: 1;
+  min-height: 0;
+  max-height: calc(100vh - 120px);
   overflow-y: auto;
 }
 
@@ -1102,7 +1103,7 @@ body.light-mode .rollover-eta strong { color: #0969da; }
   /* ── Main: single column, map row 1, table row 2 ── */
   #main { grid-template-columns: 1fr; grid-template-rows: auto 360px; padding: 10px; column-gap: 0; row-gap: 14px; }
   #content-col   { grid-column: 1; grid-row: 1; }
-  #table-section { grid-column: 1; grid-row: 2; position: static; align-self: start; max-height: none; }
+  #table-section { grid-column: 1; grid-row: 2; position: static; align-self: start; }
   #table-section .bus-table-wrap { flex: none; height: 280px; max-height: none; }
   #heatmap-section, #dropdown-section, #timeline-section { grid-column: 1; }
 
