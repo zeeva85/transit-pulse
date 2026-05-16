@@ -8,12 +8,13 @@
     "node": ">=18"
   },
   "scripts": {
-    "start": "node server.js",
-    "dev": "node --watch server.js"
+    "start": "node --max-old-space-size=6144 server.js",
+    "dev": "node --max-old-space-size=6144 --watch server.js"
   },
   "dependencies": {
     "@dsnp/parquetjs": "^1.8.7",
     "csv-parse": "^5.5.6",
+    "dotenv": "^17.4.2",
     "express": "^4.19.2",
     "gtfs-realtime-bindings": "^1.1.1",
     "hyparquet": "^1.25.8",
