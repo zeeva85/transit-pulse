@@ -2313,9 +2313,10 @@ function bindNewSidebarControls() {
   let markerA = null;
   let markerB = null;
 
-  function makeEmojiMarker(emoji) {
+  function makeEmojiMarker(emoji, { flipX = false } = {}) {
     const el = document.createElement("div");
-    el.style.cssText = "font-size:28px;line-height:1;cursor:default;user-select:none;";
+    el.style.cssText = "font-size:28px;line-height:1;cursor:default;user-select:none;" +
+      (flipX ? "transform:scaleX(-1);" : "");
     el.textContent = emoji;
     return new maplibregl.Marker({ element: el, anchor: "bottom" });
   }
@@ -2355,7 +2356,7 @@ function bindNewSidebarControls() {
     if (coords.length >= 2) {
       const [aLon, aLat] = coords[0];
       const [bLon, bLat] = coords[coords.length - 1];
-      markerA = makeEmojiMarker("🚗").setLngLat([aLon, aLat]).addTo(map);
+      markerA = makeEmojiMarker("🚗", { flipX: bLon > aLon }).setLngLat([aLon, aLat]).addTo(map);
       markerB = makeEmojiMarker("🏁").setLngLat([bLon, bLat]).addTo(map);
     }
 
