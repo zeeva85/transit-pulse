@@ -16,6 +16,7 @@
 const fs = require("fs");
 const path = require("path");
 const readline = require("readline");
+const { STORE_BUFFER_FLUSH_MS, STORE_STREAM_IDLE_CLOSE_MS } = require("./config");
 
 const DATA_DIR = path.join(__dirname, "data");
 // Read-only source of historical parquet files written by the Python app.
@@ -56,8 +57,7 @@ function fileFor(klDateStr) {
 // its own append-only stream that we keep open until day rollover or process
 // exit. Buffer is flushed when it reaches BUFFER_LINES or when the date
 // rolls.
-const writers = new Map(); // klDateStr -> { stream, lastUsedMs }
-const BUFFER_FLUSH_MS = 2000; // explicit flush every 2 s
+const writers = new Map(); // klDateStr -> { stream, lastUsedMs } // explicit flush every 2 s
 
 function getStream(klDateStr) {
   let w = writers.get(klDateStr);
@@ -71,7 +71,7 @@ function getStream(klDateStr) {
   return w.stream;
 }
 
-function closeIdleStreams(idleMs = 60_000) {
+function closeIdleStreams(idleMs = STORE_STREAM_IDLE_CLOSE_MS) {
   const now = Date.now();
   for (const [date, w] of writers) {
     if (now - w.lastUsedMs > idleMs) {
@@ -125,7 +125,7 @@ function flushAll() {
     }
   }
 }
-setInterval(flushAll, BUFFER_FLUSH_MS).unref();
+setInterval(flushAll, STORE_BUFFER_FLUSH_MS).unref();
 
 // Normalize a JSONL row in-place so legacy files (written before the
 // Python-schema rename) load alongside new ones. Only the four renamed

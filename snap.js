@@ -11,14 +11,12 @@
 // All math is in meters via a small-area equirectangular projection around
 // KL — same approximation Python uses, accurate to < 1 m at city zoom.
 
-const SNAP_PERP_THRESHOLD_M = 200;       // cross-route fallback
-const SNAP_OWN_ROUTE_THRESHOLD_M = 400;  // own-route candidates (GPS noise headroom)
-const MAX_FALLBACK_CHORD_M = 3000; // Pass-19 cap from Python
-// Pass-18 stickiness: prefer the bus's previously-chosen shape when its avg
-// perp is within this much of the closest candidate. Suppresses spurious
-// outbound↔inbound flipping on routes whose two variants run along the same
-// road (the WUX5618 / WVN5432 case in Python).
-const SNAP_STICKINESS_THRESHOLD_M = 30;
+const {
+  SNAP_PERP_THRESHOLD_M,
+  SNAP_OWN_ROUTE_THRESHOLD_M,
+  SNAP_MAX_FALLBACK_CHORD_M: MAX_FALLBACK_CHORD_M,
+  SNAP_STICKINESS_THRESHOLD_M,
+} = require("./config");
 
 const KL_REF_LAT = 3.139;
 const KL_REF_LON = 101.6869;

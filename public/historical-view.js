@@ -136,7 +136,11 @@
   // this in `_render_density_layer` only on the Speed (Traffic) branch (the
   // density PolygonLayer must NEVER be sampled — sampling caps per-cell counts
   // and biases coloring; HexagonLayer aggregates internally and is fine).
-  function spatialSample(positions, maxPoints = 3000, gridSizeM = 100) {
+  function spatialSample(
+    positions,
+    maxPoints = APP_CONFIG.DENSITY_SAMPLE_MAX_POINTS,
+    gridSizeM = APP_CONFIG.DENSITY_SAMPLE_GRID_M
+  ) {
     if (positions.length <= maxPoints) return positions;
     const step = gridSizeM / 111000;
     const buckets = new Map();
@@ -165,9 +169,9 @@
   // Density grid binning
   // ────────────────────────────────────────────────────────────────────
 
-  // Bucket positions to ~200m square cells. Each cell's value is the count
-  // of **distinct buses** that visited it (Pass-24 metric), not raw pings.
-  function binToGrid(positions, gridSizeM = 200) {
+  // Bucket positions to ~DENSITY_GRID_SIZE_M square cells. Each cell's value
+  // is the count of **distinct buses** that visited it (Pass-24 metric), not raw pings.
+  function binToGrid(positions, gridSizeM = APP_CONFIG.DENSITY_GRID_SIZE_M) {
     const step = gridSizeM / 111000;
     const cells = new Map(); // "lat|lon" -> Set<bus_id>
     for (const p of positions) {
@@ -202,7 +206,7 @@
   // distinct-bus counts per cell. Returns nBuckets-1 cut points; cap the
   // top quantile at 0.95 so a few hyper-busy cells don't push the top
   // threshold so high that nothing reaches it.
-  function computeCountThresholds(positions, nBuckets, gridSizeM = 200) {
+  function computeCountThresholds(positions, nBuckets, gridSizeM = APP_CONFIG.DENSITY_GRID_SIZE_M) {
     if (!positions.length || nBuckets < 2) return [];
     const { rows } = binToGrid(positions, gridSizeM);
     if (rows.length === 0) return [];
@@ -226,7 +230,7 @@
   // given, absolute coloring is used (same count → same color across views);
   // otherwise a rank-based fallback colors cells by their position in the
   // sorted unique-count list (guarantees gradient visibility per frame).
-  function buildDensityCells(positions, palette, thresholds, gridSizeM = 200) {
+  function buildDensityCells(positions, palette, thresholds, gridSizeM = APP_CONFIG.DENSITY_GRID_SIZE_M) {
     if (positions.length === 0) return [];
     const { rows, step } = binToGrid(positions, gridSizeM);
     if (rows.length === 0) return [];

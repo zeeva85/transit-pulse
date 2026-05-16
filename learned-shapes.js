@@ -24,11 +24,13 @@ const UNKNOWN_FILE = path.join(GTFS_DIR, "unknown_observations.jsonl");
 const EXTENDED_FILE = path.join(GTFS_DIR, "extended_shapes.txt");
 const EXTENDED_ROUTES_FILE = path.join(GTFS_DIR, "extended_routes.txt");
 
-// Same thresholds as Python — tweak both together if needed.
-const PROMOTION_MIN_DAYS = 3;
-const PROMOTION_MIN_POINTS = 100;
-const PROMOTION_MAX_SPREAD_M = 200;
-const BUCKET_MIN = 30; // half-hour buckets
+// Same thresholds as Python — values live in config.js (edit both sides together).
+const {
+  LEARNED_PROMOTION_MIN_DAYS:    PROMOTION_MIN_DAYS,
+  LEARNED_PROMOTION_MIN_POINTS:  PROMOTION_MIN_POINTS,
+  LEARNED_PROMOTION_MAX_SPREAD_M: PROMOTION_MAX_SPREAD_M,
+} = require("./config");
+const BUCKET_MIN = 30; // half-hour bucket width in minutes (structural — not tuneable)
 
 function bucketOfKL(tMs) {
   const d = new Date(tMs);

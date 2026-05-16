@@ -3,6 +3,8 @@
 // parses the protobuf, and exposes bus positions + static route metadata
 // as JSON for the static frontend in public/.
 
+require("dotenv").config();
+const config  = require("./config");
 const express = require("express");
 const fs = require("fs");
 const path = require("path");
@@ -36,6 +38,7 @@ const {
 const { computePooledMedians } = require("./pooled");
 const { createSnapper } = require("./snap");
 const { correctOutliers, CORRECTION_METHODS } = require("./outliers");
+const { initRouter } = require("./router");
 const {
   getCrossDayModel,
   adjustRow,
@@ -66,7 +69,7 @@ const FEED_URL =
 // `?interval=<seconds>` to /api/buses to shift the floor; the effective
 // cache window is `max(25, requestedInterval - 5)` so a 60 s slider gives
 // a 55 s cache. Matches Python's `cache_ttl = max(interval, 30)` model.
-const FEED_CACHE_BASE_MS = 25 * 1000;
+const FEED_CACHE_BASE_MS = config.FEED_CACHE_BASE_MS;
 const GTFS_DIR = path.join(__dirname, "gtfs_static");
 
 // Position history sliding window — mirrors Python's MAX_POSITION_HISTORY=20.
@@ -74,7 +77,7 @@ const GTFS_DIR = path.join(__dirname, "gtfs_static");
 // speed_kalman, weighted_speed }. Field names match the Python parquet schema
 // (busapp/pipeline.py) — only `time` differs in value (ms-epoch vs datetime).
 // Trail rendering reads this on the frontend.
-const MAX_HISTORY = 20;
+const MAX_HISTORY = config.MAX_POSITION_HISTORY;
 // Python doesn't time-prune position_history — entries fall off the
 // `maxlen=20` deque naturally. We match that: no idle-prune timer here.
 // EKF state, trust buffers, and the live heatmap accumulator are also NOT
@@ -108,6 +111,13 @@ app.use(express.static(path.join(__dirname, "public"), {
     }
   },
 }));
+
+// Serve config.js from root (not public/) so both server and browser share it
+app.get("/config.js", (req, res) => {
+  res.setHeader("Content-Type", "application/javascript");
+  res.setHeader("Cache-Control", "no-cache");
+  res.sendFile(path.join(__dirname, "config.js"));
+});
 
 // ──────────────────────────────────────────────────────────────────────────
 // Static GTFS lookups — loaded once at startup, kept in memory.
@@ -254,8 +264,8 @@ function haversineKm(lat1, lon1, lat2, lon2) {
 // Mutable so the /api/settings PUT handler can flip it at runtime.
 let activeCorrectionMethod = "iqr";
 
-// Python detect_movement: Moving iff displacement > 20 m OR raw speed > 1 km/h.
-const STATUS_DISTANCE_THRESHOLD_M = 20;
+// Python detect_movement: Moving iff displacement > STATUS_DISTANCE_THRESHOLD_M OR raw speed > 1 km/h.
+const STATUS_DISTANCE_THRESHOLD_M = config.STATUS_DISTANCE_THRESHOLD_M;
 
 // Python round(x, 1) / round(x, 2) replacements. Math.round is half-away-from-
 // zero; Python's round() is banker's (half-to-even). For real GPS-derived
@@ -359,7 +369,7 @@ let feedCache = { ts: 0, buses: [] };
 // Match Python busapp/fetch.py: 3 attempts with 1/2/4 s backoff between them.
 // Single-shot fetches fail occasionally because data.gov.my has spotty TLS
 // reliability; one cheap retry tier closes the gap.
-const FEED_RETRY_BACKOFFS_MS = [1000, 2000, 4000];
+const FEED_RETRY_BACKOFFS_MS = config.FEED_RETRY_BACKOFFS_MS;
 
 async function fetchFeedBytes() {
   let lastErr = null;
@@ -517,7 +527,7 @@ async function fetchFeed(cacheMs = FEED_CACHE_BASE_MS) {
     const ageSeconds = v.timestamp
       ? Math.max(0, (now - Number(v.timestamp) * 1000) / 1000)
       : 0;
-    const isStale = ageSeconds > 90;
+    const isStale = ageSeconds > config.STALE_AGE_THRESHOLD_S;
 
     // Pull the wholesale-replaced prev for THIS bus (may be undefined when
     // the bus is new or was absent from the previous tick). Pass through
@@ -1169,6 +1179,92 @@ app.get("/api/rollover-status", (_req, res) => {
 
 // Server-side switch for the outlier-correction algorithm. POSTed by the
 // sidebar's "Outlier Correction Method" selector.
+// ──────────────────────────────────────────────────────────────────────────
+// Admin auth — server-side password check so the password never appears in
+// client JS. Set ADMIN_PASSWORD env var on the host (Railway dashboard /
+// Hostinger env panel / .env file). Token lives server-side with 15-min TTL.
+// ──────────────────────────────────────────────────────────────────────────
+const { randomBytes } = require("crypto");
+const SESSION_TTL_MS = config.ADMIN_SESSION_TTL_MS;
+const adminSessions  = new Map(); // token → expiresAt
+
+function parseCookies(header) {
+  const out = {};
+  if (!header) return out;
+  for (const part of header.split(";")) {
+    const [k, ...v] = part.trim().split("=");
+    if (k) out[k.trim()] = v.join("=");
+  }
+  return out;
+}
+
+function pruneAdminSessions() {
+  const now = Date.now();
+  for (const [tok, exp] of adminSessions) if (exp < now) adminSessions.delete(tok);
+}
+
+app.post("/api/admin/login", express.json(), (req, res) => {
+  const password = process.env.ADMIN_PASSWORD;
+  if (!password) return res.status(503).json({ ok: false, error: "Admin not configured" });
+  if (!req.body || req.body.password !== password)
+    return res.status(401).json({ ok: false, error: "Wrong password" });
+
+  pruneAdminSessions();
+  const token = randomBytes(32).toString("hex");
+  adminSessions.set(token, Date.now() + SESSION_TTL_MS);
+  res.setHeader("Set-Cookie",
+    `adminToken=${token}; HttpOnly; Max-Age=${config.ADMIN_SESSION_TTL_MS / 1000}; SameSite=Strict; Path=/`);
+  res.json({ ok: true, expiresIn: SESSION_TTL_MS });
+});
+
+app.get("/api/admin/check", (req, res) => {
+  const cookies = parseCookies(req.headers.cookie);
+  const token   = cookies.adminToken;
+  pruneAdminSessions();
+  const exp = token && adminSessions.get(token);
+  if (exp && exp > Date.now()) return res.json({ ok: true });
+  res.json({ ok: false });
+});
+
+app.post("/api/admin/logout", (req, res) => {
+  const cookies = parseCookies(req.headers.cookie);
+  if (cookies.adminToken) adminSessions.delete(cookies.adminToken);
+  res.setHeader("Set-Cookie", "adminToken=; HttpOnly; Max-Age=0; SameSite=Strict; Path=/");
+  res.json({ ok: true });
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// Trip planner — A* over OSM road graph with live bus congestion weights
+// ──────────────────────────────────────────────────────────────────────────
+app.get("/api/route", (req, res) => {
+  if (!router) return res.status(503).json({ error: "Router not ready yet — try again in a few seconds" });
+
+  const parseLatLon = (s) => {
+    if (!s) return null;
+    const parts = s.split(",").map(Number);
+    if (parts.length !== 2 || parts.some(isNaN)) return null;
+    const [lat, lon] = parts;
+    if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
+    return { lat, lon };
+  };
+
+  const from = parseLatLon(req.query.from);
+  const to   = parseLatLon(req.query.to);
+  if (!from || !to) return res.status(400).json({ error: "Pass ?from=lat,lon&to=lat,lon" });
+
+  // Extract live bus positions as congestion signal — use trust-weighted speed
+  const observations = [];
+  for (const bus of feedCache.buses) {
+    if (bus.lat != null && bus.lon != null)
+      observations.push({ lat: bus.lat, lon: bus.lon, speed: bus.weighted_speed ?? bus.speed ?? 0 });
+  }
+
+  const result = router.findRoute(from.lat, from.lon, to.lat, to.lon, observations);
+  console.log("[route]", JSON.stringify(result.error || result.properties));
+  if (result.error) return res.status(404).json(result);
+  res.json(result);
+});
+
 app.post("/api/correction-method", express.json(), (req, res) => {
   const method = req.body && req.body.method;
   if (!CORRECTION_METHODS.includes(method)) {
@@ -1245,16 +1341,16 @@ async function replayTodaysData() {
   }
 }
 
+let router = null;
+initRouter()
+  .then(r => { router = r; console.log("[router] ready"); })
+  .catch(err => console.error("[router] failed to init:", err));
+
 replayTodaysData().finally(() => {
   app.listen(PORT, () => {
     console.log(`[busjs] listening on http://localhost:${PORT}`);
   });
-  // Warm up the cross-day model in the background so the first historical
-  // date request doesn't block on a cold start.
   getCrossDayModel().catch(() => {});
-  // Auto-maintenance: if there are any past-day JSOLs that weren't
-  // augmented+converted at rollover (first deploy, crashed server, etc.),
-  // run the full maintenance pass quietly in the background.
   startupMaintenance().catch((err) =>
     console.error("[startup] maintenance failed:", err)
   );

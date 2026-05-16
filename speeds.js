@@ -3,6 +3,8 @@
 // Hand-rolled matrix helpers because dimensions are small and fixed
 // (4x4, 4x2, 2x4, 2x2). Avoids pulling in ml-matrix.
 
+const config = require("./config");
+
 // ──────────────────────────────────────────────────────────────────────────
 // Geo helpers — small-region equirectangular projection around KL center.
 // ──────────────────────────────────────────────────────────────────────────
@@ -107,12 +109,12 @@ function mat2Inv(A) {
 // Port of busapp/speeds/ekf.py:apply_ekf_filter.
 // ──────────────────────────────────────────────────────────────────────────
 
-const MAX_SPEED_MS = 150 / 3.6;
-const MAX_GPS_JUMP_M = 500;
-const MAX_DT = 120;
-const LARGE_DT = 90; // reset velocity if gap exceeds this
-const DIVERGENCE_SPEED_KMH = 200;
-const DIVERGENCE_COV_TRACE = 1000;
+const MAX_SPEED_MS          = config.EKF_MAX_SPEED_KMH / 3.6;
+const MAX_GPS_JUMP_M        = config.EKF_MAX_GPS_JUMP_M;
+const MAX_DT                = config.EKF_MAX_DT;
+const LARGE_DT              = config.EKF_LARGE_DT;
+const DIVERGENCE_SPEED_KMH  = config.EKF_DIVERGENCE_SPEED_KMH;
+const DIVERGENCE_COV_TRACE  = config.EKF_DIVERGENCE_COV_TRACE;
 
 const kalmanStates = new Map();
 
@@ -123,7 +125,7 @@ function applyEkfFilter(busId, lat, lon, measuredSpeedKmh, dt) {
   if (!kalmanStates.has(busId)) {
     kalmanStates.set(busId, {
       x: [mx, my, 0, 0],
-      P: eye(4, 10),
+      P: eye(4, config.EKF_INIT_COVARIANCE),
       lastPosition: [mx, my],
       initCount: 0,
     });
@@ -139,13 +141,13 @@ function applyEkfFilter(busId, lat, lon, measuredSpeedKmh, dt) {
   if (dtSec > LARGE_DT) {
     st.x[2] = 0;
     st.x[3] = 0;
-    st.P = eye(4, 10);
+    st.P = eye(4, config.EKF_INIT_COVARIANCE);
     return { filteredLat: lat, filteredLon: lon, filteredSpeedKmh: measuredSpeedKmh };
   }
 
-  // Bootstrap velocity from displacement on the first 2 observations after
+  // Bootstrap velocity from displacement on the first few observations after
   // initialization, so the filter has something other than zero velocity.
-  if (st.initCount < 2) {
+  if (st.initCount < config.EKF_INIT_VELOCITY_TICKS) {
     const [lx, ly] = st.lastPosition;
     let vx = (mx - lx) / dtSec;
     let vy = (my - ly) / dtSec;
@@ -172,7 +174,9 @@ function applyEkfFilter(busId, lat, lon, measuredSpeedKmh, dt) {
   // Adaptive process noise: bump up when GPS speed disagrees with our estimate.
   const estSpeedKmh = Math.hypot(st.x[2], st.x[3]) * 3.6;
   const speedChange = Math.abs(measuredSpeedKmh - estSpeedKmh);
-  const q = speedChange > 20 ? 2 : 0.5;
+  const q = speedChange > config.EKF_SPEED_CHANGE_THRESHOLD_KMH
+    ? config.EKF_PROCESS_NOISE_HIGH
+    : config.EKF_PROCESS_NOISE_LOW;
 
   const dt2 = dtSec ** 2;
   const dt3 = dtSec ** 3;
@@ -197,8 +201,8 @@ function applyEkfFilter(busId, lat, lon, measuredSpeedKmh, dt) {
     [0, 1, 0, 0],
   ];
   const R = [
-    [25, 0],
-    [0, 25],
+    [config.EKF_MEAS_NOISE_VAR, 0],
+    [0, config.EKF_MEAS_NOISE_VAR],
   ];
   const z = [mx, my];
 
@@ -227,8 +231,8 @@ function applyEkfFilter(busId, lat, lon, measuredSpeedKmh, dt) {
   // Soften the gain when Mahalanobis distance is large (outlier-ish update).
   const yT_Sinv = matVec(Sinv, y); // 2-vec
   const mahalanobis = Math.sqrt(y[0] * yT_Sinv[0] + y[1] * yT_Sinv[1]);
-  if (mahalanobis > 3) {
-    K = matScale(K, 0.3);
+  if (mahalanobis > config.EKF_MAHALANOBIS_THRESHOLD) {
+    K = matScale(K, config.EKF_MAHALANOBIS_GAIN_SCALE);
     xUpd = vecAdd(xPred, matVec(K, y));
   }
 
@@ -266,7 +270,7 @@ function applyEkfFilter(busId, lat, lon, measuredSpeedKmh, dt) {
 // Trust-weighted speed — port of busapp/speeds/trust.py:detect_movement.
 // ──────────────────────────────────────────────────────────────────────────
 
-const ROLLING_WINDOW = 5;
+const ROLLING_WINDOW = config.ROLLING_WINDOW;
 const speedBuffers = new Map(); // bus_id -> [gps_speed, …]
 const calcBuffers = new Map(); // bus_id -> [calc_speed, …]
 const trustBuffers = new Map(); // bus_id -> [trust_score, …]
@@ -289,9 +293,9 @@ function computeTrustWeighted(busId, gpsSpeed, calculatedSpeed) {
     const diff = Math.abs(gps - calculatedSpeed);
     const maxSp = Math.max(gps, calculatedSpeed, 1);
     trustScore = Math.max(0.1, Math.min(1, 1 - diff / (maxSp + 10)));
-    if (gps > 120) trustScore *= 0.1; // GPS-spike penalty
+    if (gps > config.TRUST_GPS_SPIKE_KMH) trustScore *= config.TRUST_GPS_SPIKE_PENALTY;
   } else {
-    trustScore = 0.7;
+    trustScore = config.TRUST_NO_CALC_FALLBACK;
   }
   const trustBuf = pushBounded(trustBuffers, busId, trustScore);
 

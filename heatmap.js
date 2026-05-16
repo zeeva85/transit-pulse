@@ -9,8 +9,7 @@
 // / `pruneAccumulator` exports delegate to a single shared "live" instance.
 
 const { binEdges, categorize, PHYSICAL_ANCHOR, SPIKE_THRESHOLD } = require("./bins");
-
-const SAMPLES_PER_BUSHOUR_CELL = 60;
+const { HEATMAP_SAMPLES_PER_CELL: SAMPLES_PER_BUSHOUR_CELL, HEATMAP_HIST_CACHE_LIMIT: HIST_CACHE_LIMIT } = require("./config");
 
 const MODES = ["raw", "corrected", "calc", "kalman", "trust"];
 
@@ -184,7 +183,6 @@ const live = makeAccumulator();
 // LRU cache of historical date → accumulator. Keeps memory bounded if a user
 // hops between many dates. Built lazily — first /api/heatmap?date=X request
 // for that date streams the JSONL through a fresh accumulator and stashes it.
-const HIST_CACHE_LIMIT = 5;
 const historicalCache = new Map();
 
 async function buildHistoricalHeatmap(date, loadDateFn, opts = {}) {

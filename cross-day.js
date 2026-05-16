@@ -13,9 +13,7 @@
 // Case-3 (no typical at all) → leave the row as-is.
 
 const { loadDate, listDates } = require("./store");
-
-const BUCKETS_PER_DAY = 48; // 30-min buckets — matches Python's half-hour cadence
-const POSITION_JUMP_KM = 2; // > this distance from typical → replace
+const { CROSS_DAY_BUCKETS_PER_DAY: BUCKETS_PER_DAY, CROSS_DAY_POSITION_JUMP_KM: POSITION_JUMP_KM } = require("./config");
 
 const EARTH_R_KM = 6371.0088;
 function haversineKm(lat1, lon1, lat2, lon2) {

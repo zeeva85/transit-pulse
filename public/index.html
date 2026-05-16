@@ -80,6 +80,21 @@
     </label>
     <div id="cluster-status" class="meta">off</div>
 
+    <hr class="sidebar-sep" />
+    <h2>🔐 Admin</h2>
+    <div id="admin-login-form">
+      <label>
+        Password
+        <input id="admin-password" type="password" placeholder="Enter password" autocomplete="current-password" />
+      </label>
+      <button id="admin-login-btn" class="admin-btn" type="button">Login</button>
+      <div id="admin-login-error" class="admin-error" hidden>Incorrect password</div>
+    </div>
+    <div id="admin-logged-in" hidden>
+      <span class="admin-status">✅ Admin unlocked</span>
+      <button id="admin-logout-btn" class="admin-btn admin-btn--ghost" type="button">Logout</button>
+    </div>
+
   </div>
 
   <aside id="sidebar">
@@ -185,6 +200,22 @@
       <div id="timeline-empty" class="meta" style="padding: 10px 0; font-size: 11px; text-align: center;">
         Select a bus to view its timeline.
       </div>
+    </div>
+
+    <div class="admin-section" id="trip-planner">
+      <hr class="sidebar-sep" />
+      <h2>🗺️ Trip Planner</h2>
+      <p class="meta" style="font-size:11px; margin:0 0 10px;">Live congestion from bus speeds · Beta</p>
+      <label>
+        From
+        <input id="trip-origin" type="text" placeholder="e.g. Subang Jaya or 3.1478, 101.6953" autocomplete="off" />
+      </label>
+      <label>
+        To
+        <input id="trip-destination" type="text" placeholder="e.g. Putrajaya or 3.1390, 101.6869" autocomplete="off" />
+      </label>
+      <button id="trip-find-btn" class="admin-btn" type="button" style="width:100%; margin-top:6px;">Find Route</button>
+      <div id="trip-result" class="meta" style="margin-top:8px; font-size:11px; line-height:1.5;"></div>
     </div>
 
   </aside>
@@ -328,6 +359,7 @@
   </div>
 </div>
 
+<script src="/config.js"></script>
 <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
   <script src="https://unpkg.com/deck.gl@9.0.32/dist.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>

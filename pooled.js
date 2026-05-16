@@ -8,6 +8,7 @@
 // Cached for 60 minutes since recomputation is O(rows) and rows grow daily.
 
 const { listDates, loadDate } = require("./store");
+const { POOLED_CACHE_TTL_MS: CACHE_MS } = require("./config");
 
 // All 5 modes — `corrected` was missing in the pre-fix version, which made
 // pooled anchor for "Corrected GPS" silently fall back to physical (40 km/h).
@@ -23,8 +24,6 @@ const KEY_BY_MODE = {
   kalman: "speed_kalman",
   trust: "weighted_speed",
 };
-const CACHE_MS = 60 * 60 * 1000;
-
 // `stamp` is the listDates() (size, mtime) fingerprint so the cache
 // invalidates when any stored day is added/removed/rewritten. Without this
 // the 60-minute TTL was the only thing forcing a recompute, which meant new

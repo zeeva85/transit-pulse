@@ -1,7 +1,10 @@
 // Frontend: poll /api/buses, render trails + dots + route polylines on
 // deck.gl over maplibre-gl. Mirrors the Python live-map view.
 
-const KL_CENTER = { lat: 3.0925, lon: 101.6733, zoom: 9.5 };
+const KL_CENTER = APP_CONFIG.KL_CENTER;
+
+// Apply CSS custom properties from config so style.css can reference them
+document.documentElement.style.setProperty("--dim-deck-opacity", APP_CONFIG.DIM_DECK_OPACITY);
 
 // Match Streamlit's map style selector — same 4 options. The satellite tile
 // URL needs a MapTiler API key; the server reads `MAPTILER_KEY` from the
@@ -25,6 +28,28 @@ let staticLayers = [];   // layers built by rebuildLayers, pulse appended on top
 let pulsePhase = 0;
 let pulseRafId = null;
 
+const DIM_SOURCE = "map-dim-overlay";
+const DIM_LAYER  = "map-dim-overlay-fill";
+function setMapDim(on) {
+  document.body.classList.toggle("map-dimmed", on);
+  if (!map) return;
+  if (on) {
+    if (map.getSource(DIM_SOURCE)) return;
+    map.addSource(DIM_SOURCE, {
+      type: "geojson",
+      data: { type: "Feature", geometry: { type: "Polygon",
+        coordinates: [[[-180,-90],[180,-90],[180,90],[-180,90],[-180,-90]]] } },
+    });
+    map.addLayer({
+      id: DIM_LAYER, type: "fill", source: DIM_SOURCE,
+      paint: { "fill-color": "#000000", "fill-opacity": APP_CONFIG.DIM_FILL_OPACITY },
+    });
+  } else {
+    if (map.getLayer(DIM_LAYER))  map.removeLayer(DIM_LAYER);
+    if (map.getSource(DIM_SOURCE)) map.removeSource(DIM_SOURCE);
+  }
+}
+
 function matchTableToMap() {
   const tableSection = document.getElementById("table-section");
   if (!tableSection) return;
@@ -42,6 +67,8 @@ function matchTableToMap() {
 }
 window.addEventListener("resize", matchTableToMap);
 
+let maptilerKey = null;
+
 // Fetch server config (MapTiler key etc.) once at boot so the satellite tile
 // URL gets the right key before maplibre actually requests tiles.
 async function loadServerConfig() {
@@ -50,11 +77,44 @@ async function loadServerConfig() {
     if (!res.ok) return;
     const cfg = await res.json();
     if (cfg.maptiler_key) {
-      MAP_STYLES.satellite = `https://api.maptiler.com/maps/hybrid/style.json?key=${encodeURIComponent(cfg.maptiler_key)}`;
+      maptilerKey = cfg.maptiler_key;
+      MAP_STYLES.satellite = `https://api.maptiler.com/maps/hybrid/style.json?key=${encodeURIComponent(maptilerKey)}`;
     }
   } catch {
     /* config is optional — fall through with defaults */
   }
+}
+
+// Resolve a place-name string to { lat, lon, displayName }.
+// If the input already looks like "lat, lon" coordinates it's returned as-is (no fetch).
+// Uses MapTiler when MAPTILER_KEY is available, falls back to Nominatim otherwise.
+// Throws a descriptive Error if the query resolves to nothing.
+async function geocode(query) {
+  const coordRe = /^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/;
+  const m = coordRe.exec(query);
+  if (m) return { lat: parseFloat(m[1]), lon: parseFloat(m[2]), displayName: query.trim() };
+
+  if (maptilerKey) {
+    const url = `https://api.maptiler.com/geocoding/${encodeURIComponent(query)}.json` +
+      `?key=${encodeURIComponent(maptilerKey)}&bbox=${APP_CONFIG.GEOCODE_BBOX}&limit=1`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Geocoding request failed (${res.status})`);
+    const data = await res.json();
+    if (!data.features || data.features.length === 0) throw new Error(`No results for "${query}"`);
+    const [lon, lat] = data.features[0].geometry.coordinates;
+    return { lat, lon, displayName: data.features[0].place_name || query };
+  }
+
+  // Nominatim fallback (no key required)
+  const [minLon, minLat, maxLon, maxLat] = APP_CONFIG.GEOCODE_BBOX.split(",");
+  const url = `https://nominatim.openstreetmap.org/search` +
+    `?q=${encodeURIComponent(query)}&countrycodes=my&format=json&limit=1` +
+    `&viewbox=${minLon},${maxLat},${maxLon},${minLat}&bounded=1`;
+  const res = await fetch(url, { headers: { "Accept-Language": "en" } });
+  if (!res.ok) throw new Error(`Geocoding request failed (${res.status})`);
+  const data = await res.json();
+  if (!data.length) throw new Error(`No results for "${query}"`);
+  return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon), displayName: data[0].display_name };
 }
 
 (async () => {
@@ -64,6 +124,8 @@ async function loadServerConfig() {
     style: MAP_STYLES[mapStyle],
     center: [KL_CENTER.lon, KL_CENTER.lat],
     zoom: KL_CENTER.zoom,
+    minZoom: APP_CONFIG.MAP_MIN_ZOOM,
+    maxZoom: APP_CONFIG.MAP_MAX_ZOOM,
     scrollZoom: false,
   });
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
@@ -1344,6 +1406,7 @@ function selectBus(busId) {
   if (window.busTable) window.busTable.setSelected(busId);
   showSidebarTimeline();
   renderSelectedBusTimeline();
+  setMapDim(true);
   rebuildLayers();
   fitToSelectedBus(busId);
 }
@@ -1352,6 +1415,7 @@ function clearSelection() {
   state.selectedBus = null;
   if (window.busTable) window.busTable.setSelected(null);
   hideSidebarTimeline();
+  setMapDim(false);
   rebuildLayers();
   if (map) {
     map.flyTo({ center: [KL_CENTER.lon, KL_CENTER.lat], zoom: KL_CENTER.zoom, bearing: 0, duration: 600 });
@@ -2154,5 +2218,201 @@ function bindNewSidebarControls() {
   if (dp) dp.addEventListener("change", () => {
     if (mq.matches) sidebar.classList.remove("mobile-open");
   });
+})();
+
+// ──────────────────────────────────────────────────────────────────────────
+// Admin login
+// ──────────────────────────────────────────────────────────────────────────
+(function () {
+  const SESSION_MS = APP_CONFIG.ADMIN_SESSION_TTL_MS;
+
+  const loginForm   = document.getElementById("admin-login-form");
+  const loggedInDiv = document.getElementById("admin-logged-in");
+  const pwInput     = document.getElementById("admin-password");
+  const loginBtn    = document.getElementById("admin-login-btn");
+  const errorDiv    = document.getElementById("admin-login-error");
+  const logoutBtn   = document.getElementById("admin-logout-btn");
+  if (!loginForm || !loggedInDiv || !pwInput || !loginBtn || !logoutBtn) return;
+
+  let _expiryTimer = null;
+
+  function applyAdminState(unlocked) {
+    document.body.classList.toggle("admin-unlocked", unlocked);
+    loginForm.hidden   = unlocked;
+    loggedInDiv.hidden = !unlocked;
+    if (!unlocked) {
+      pwInput.value = "";
+      clearTimeout(_expiryTimer);
+    }
+  }
+
+  function scheduleExpiry(ms) {
+    clearTimeout(_expiryTimer);
+    _expiryTimer = setTimeout(logout, ms);
+  }
+
+  async function logout() {
+    try { await fetch("/api/admin/logout", { method: "POST" }); } catch (_) {}
+    applyAdminState(false);
+  }
+
+  async function tryLogin() {
+    loginBtn.disabled = true;
+    try {
+      const res  = await fetch("/api/admin/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: pwInput.value }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        errorDiv.hidden = true;
+        applyAdminState(true);
+        scheduleExpiry(data.expiresIn || SESSION_MS);
+      } else {
+        errorDiv.textContent = data.error === "Admin not configured"
+          ? "Admin not configured on server" : "Incorrect password";
+        errorDiv.hidden = false;
+        pwInput.select();
+      }
+    } catch (_) {
+      errorDiv.textContent = "Server unreachable";
+      errorDiv.hidden = false;
+    } finally {
+      loginBtn.disabled = false;
+    }
+  }
+
+  // on load: ask server if cookie is still valid
+  fetch("/api/admin/check")
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) {
+        applyAdminState(true);
+        scheduleExpiry(SESSION_MS);
+      }
+    })
+    .catch(() => {});
+
+  loginBtn.addEventListener("click", tryLogin);
+  pwInput.addEventListener("keydown", (e) => { if (e.key === "Enter") tryLogin(); });
+  logoutBtn.addEventListener("click", logout);
+
+  // Trip planner — calls /api/route and draws result on the MapLibre map
+  const findBtn   = document.getElementById("trip-find-btn");
+  const resultDiv = document.getElementById("trip-result");
+  const originEl  = document.getElementById("trip-origin");
+  const destEl    = document.getElementById("trip-destination");
+
+  const ROUTE_SOURCE       = "trip-route";
+  const ROUTE_LAYER        = "trip-route-line";
+  const ROUTE_LAYER_BORDER = "trip-route-line-border";
+
+  // HTML markers — maplibregl.Marker renders emoji reliably via DOM,
+  // unlike symbol layers which use MapLibre's glyph renderer (no emoji support).
+  let markerA = null;
+  let markerB = null;
+
+  function makeEmojiMarker(emoji) {
+    const el = document.createElement("div");
+    el.style.cssText = "font-size:28px;line-height:1;cursor:default;user-select:none;";
+    el.textContent = emoji;
+    return new maplibregl.Marker({ element: el, anchor: "bottom" });
+  }
+
+  function removeRouteLayer() {
+    if (!map) return;
+    [ROUTE_LAYER_BORDER, ROUTE_LAYER].forEach(id => { if (map.getLayer(id)) map.removeLayer(id); });
+    [ROUTE_SOURCE].forEach(id => { if (map.getSource(id)) map.removeSource(id); });
+    if (markerA) { markerA.remove(); markerA = null; }
+    if (markerB) { markerB.remove(); markerB = null; }
+    setMapDim(false);
+  }
+
+  function drawRoute(geojson) {
+    if (!map) return;
+    removeRouteLayer();
+    setMapDim(true);
+    const coords = geojson.geometry.coordinates;
+
+    map.addSource(ROUTE_SOURCE, { type: "geojson", data: geojson });
+    // white border for contrast on dark/satellite tiles
+    map.addLayer({
+      id: ROUTE_LAYER_BORDER,
+      type: "line",
+      source: ROUTE_SOURCE,
+      layout: { "line-join": "round", "line-cap": "round" },
+      paint: { "line-color": APP_CONFIG.ROUTE_BORDER_COLOR, "line-width": APP_CONFIG.ROUTE_BORDER_WIDTH, "line-opacity": APP_CONFIG.ROUTE_BORDER_OPACITY },
+    });
+    map.addLayer({
+      id: ROUTE_LAYER,
+      type: "line",
+      source: ROUTE_SOURCE,
+      layout: { "line-join": "round", "line-cap": "round" },
+      paint: { "line-color": APP_CONFIG.ROUTE_LINE_COLOR, "line-width": APP_CONFIG.ROUTE_LINE_WIDTH, "line-opacity": APP_CONFIG.ROUTE_LINE_OPACITY },
+    });
+
+    if (coords.length >= 2) {
+      const [aLon, aLat] = coords[0];
+      const [bLon, bLat] = coords[coords.length - 1];
+      markerA = makeEmojiMarker("🚗").setLngLat([aLon, aLat]).addTo(map);
+      markerB = makeEmojiMarker("🏁").setLngLat([bLon, bLat]).addTo(map);
+    }
+
+    // Fit map to the route
+    if (coords.length > 1) {
+      const lons = coords.map(c => c[0]);
+      const lats = coords.map(c => c[1]);
+      map.fitBounds(
+        [[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]],
+        { padding: 60, duration: 800 }
+      );
+    }
+  }
+
+  if (findBtn && resultDiv) {
+    findBtn.addEventListener("click", async () => {
+      const originQuery = originEl ? originEl.value.trim() : "";
+      const destQuery   = destEl   ? destEl.value.trim()   : "";
+      if (!originQuery || !destQuery) {
+        resultDiv.textContent = "Enter both From and To.";
+        return;
+      }
+      findBtn.disabled      = true;
+      resultDiv.textContent = "Locating…";
+      let originGeo, destGeo;
+      try {
+        [originGeo, destGeo] = await Promise.all([geocode(originQuery), geocode(destQuery)]);
+      } catch (err) {
+        resultDiv.textContent = err.message;
+        findBtn.disabled = false;
+        return;
+      }
+      resultDiv.innerHTML =
+        `<span style="opacity:0.7">From: ${originGeo.displayName}<br>To: ${destGeo.displayName}</span><br>Routing…`;
+      try {
+        const from = `${originGeo.lat},${originGeo.lon}`;
+        const to   = `${destGeo.lat},${destGeo.lon}`;
+        const res  = await fetch(`/api/route?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
+        const data = await res.json();
+        if (!res.ok || data.error) {
+          resultDiv.textContent = data.error || "Routing failed.";
+          removeRouteLayer();
+          return;
+        }
+        const p = data.properties;
+        resultDiv.innerHTML =
+          `<span style="opacity:0.7">From: ${originGeo.displayName}<br>To: ${destGeo.displayName}</span><br>` +
+          `📍 <strong>${p.distance_km} km</strong> · ` +
+          `🕒 <strong>~${p.duration_min} min</strong><br>` +
+          `<span style="opacity:0.7">${p.congestion_obs} bus observations used as congestion signal</span>`;
+        drawRoute(data);
+      } catch (err) {
+        resultDiv.textContent = "Network error — is the server running?";
+      } finally {
+        findBtn.disabled = false;
+      }
+    });
+  }
 })();
 
