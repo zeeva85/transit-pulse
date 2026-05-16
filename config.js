@@ -18,14 +18,14 @@ const config = {
   // ── Map coverage ────────────────────────────────────────────────────────────
   // Used by: router.js (Overpass tile fetch bounding boxes).
   // KL_BBOX: KL metro area — Phase 1 router graph, always fetched on Railway.
-  //   Covers KL + PJ + Subang + Shah Alam + Kajang + Rawang + Klang.
+  //   Covers KL + PJ + Subang + Shah Alam + Kajang + Rawang.
   //   Format: minLat,minLon,maxLat,maxLon (Overpass convention).
   //   Widening this adds more nodes and increases RAM (~5.9× file size in heap).
-  //   Current bbox: 0.40°×0.47° ≈ 640k nodes ≈ 300 MB heap (safe on Railway 512 MB).
+  //   Current bbox: 0.40°×0.32° ≈ 435k nodes ≈ 210 MB heap (safe on Railway 512 MB).
   //   Cache is invalidated automatically when this value changes.
   // MY_BBOX: full Peninsular Malaysia — Phase 2 graph, only when
   //   FULL_MALAYSIA_GRAPH=true. Requires ~3 GB RAM to build.
-  KL_BBOX: "2.95,101.35,3.35,101.82",
+  KL_BBOX: "2.95,101.50,3.35,101.82",
   MY_BBOX: "1.0,99.5,6.8,104.5",
 
   // ── Geocoding (MapTiler) ─────────────────────────────────────────────────────
