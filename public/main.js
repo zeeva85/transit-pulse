@@ -2175,26 +2175,75 @@ function bindNewSidebarControls() {
   setInterval(updateBusArtStatus, 60_000);
 }
 
-// ── Mobile header: swap brand text → ASCII bus art after 10 s ────────────
+// ── Header sequence ───────────────────────────────────────────────────────
+// Desktop: weather always visible from load; brand fades out at 5s, bus art
+//          fades in to brand position. Static after that.
+// Mobile:  brand(3s) → art(2s) → weather(5s) → loop art↔weather forever.
 (function () {
-  const mq = window.matchMedia("(max-width: 768px)");
-  if (!mq.matches) return;
-  const meta = document.querySelector(".header-brand-meta");
-  const art  = document.querySelector(".bus-art");
-  if (!meta || !art) return;
+  const FADE_MS    = 400;
+  const mq         = window.matchMedia("(max-width: 768px)");
+  const meta       = document.querySelector(".header-brand-meta");
+  const art        = document.querySelector(".bus-art");
+  const weatherEl  = document.getElementById("header-weather");
+  if (!meta || !art || !weatherEl) return;
 
-  setTimeout(() => {
-    meta.style.transition = "opacity 0.4s";
-    meta.style.opacity    = "0";
+  // Populate weather widget — shared by both paths.
+  fetch("/api/weather?date=today")
+    .then(r => r.json())
+    .then(({ hours }) => {
+      const klHour = new Date(Date.now() + 8 * 3600 * 1000).getUTCHours();
+      const w = hours[klHour] || hours[String(klHour)] || null;
+      if (!w) return;
+      const tempEl   = document.getElementById("wx-temp");
+      const condEl   = document.getElementById("wx-cond");
+      const detailEl = document.getElementById("wx-detail");
+      if (tempEl)   tempEl.textContent   = `${Math.round(w.temp)}°C`;
+      if (condEl)   condEl.textContent   = w.label || "";
+      if (detailEl) detailEl.textContent =
+        `💧 ${w.precip != null ? w.precip.toFixed(1) : "--"} mm  🌬 ${w.wind != null ? Math.round(w.wind) : "--"} km/h`;
+    })
+    .catch(() => {});
+
+  function fadeOut(el, cb) {
+    el.style.transition = `opacity ${FADE_MS}ms`;
+    el.style.opacity = "0";
+    setTimeout(() => { el.style.display = "none"; if (cb) cb(); }, FADE_MS);
+  }
+
+  function fadeIn(el, displayVal, cb) {
+    el.style.display = displayVal;
+    el.getBoundingClientRect();
+    el.style.transition = `opacity ${FADE_MS}ms`;
+    el.style.opacity = "1";
+    if (cb) setTimeout(cb, FADE_MS);
+  }
+
+  if (!mq.matches) {
+    // ── DESKTOP ──────────────────────────────────────────────────────────
+    // Weather on immediately, brand fades at 5s, bus art fades in. Done.
+    fadeIn(weatherEl, "flex");
     setTimeout(() => {
-      meta.style.display   = "none";
-      art.style.display    = "block";
-      art.style.opacity    = "0";
-      art.style.transition = "opacity 0.4s";
-      art.getBoundingClientRect(); // force reflow so transition fires
-      art.style.opacity    = "1";
-    }, 400);
-  }, 10000);
+      fadeOut(meta, () => fadeIn(art, "block"));
+    }, 5000);
+
+  } else {
+    // ── MOBILE ───────────────────────────────────────────────────────────
+    // brand(3s) → weather(5s) → bus(5s) → loop weather↔bus forever
+    const SLOT_MS = 5000;
+
+    function showWeather() {
+      fadeIn(weatherEl, "flex", () => {
+        setTimeout(() => fadeOut(weatherEl, showArt), SLOT_MS);
+      });
+    }
+    function showArt() {
+      fadeIn(art, "block", () => {
+        setTimeout(() => fadeOut(art, showWeather), SLOT_MS);
+      });
+    }
+
+    setTimeout(() => fadeOut(meta, showWeather), 3000);
+  }
 })();
 
 // ── Mobile sidebar drawer ─────────────────────────────────────────────────

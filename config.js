@@ -257,6 +257,19 @@ const config = {
   STORE_BUFFER_FLUSH_MS:        2_000,
   STORE_STREAM_IDLE_CLOSE_MS:   60_000,
 
+  // ── Weather (Open-Meteo) ─────────────────────────────────────────────────────
+  // Used by: weather.js (fetch + cache), server.js (/api/weather endpoint),
+  //   public/heatmap.js (weather strip above heatmap x-axis).
+  // WEATHER_CACHE_LIMIT: max dates held in the in-memory LRU before eviction.
+  //   Each entry is ~24 small objects — memory cost is negligible.
+  // WEATHER_RAINY_THRESHOLD_MM: hourly precipitation above this is considered
+  //   "rainy" for the heatmap strip colour (light blue → dark blue gradient).
+  // WEATHER_HOT_THRESHOLD_C: temperature above this renders the strip orange/red
+  //   in the heat-island overlay.
+  WEATHER_CACHE_LIMIT:        14,
+  WEATHER_RAINY_THRESHOLD_MM: 1.0,
+  WEATHER_HOT_THRESHOLD_C:    33,
+
   // ── Density map (historical view) ───────────────────────────────────────────
   // Used by: public/historical-view.js (binToGrid, computeCountThresholds,
   //   buildDensityCells, spatialSample).

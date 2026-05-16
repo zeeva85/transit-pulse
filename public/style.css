@@ -89,6 +89,30 @@ body.light-mode .bus-art.bus-art--ended  { color: #cc2222; text-shadow: none; }
   letter-spacing: 0.02em;
   text-shadow: 0 0 6px rgba(255, 255, 255, 0.3);
 }
+#header-weather {
+  display: flex;
+  flex-direction: column;
+  align-self: center;
+  gap: 2px;
+  min-width: 90px;
+}
+#wx-temp {
+  font-size: 22px;
+  font-weight: 700;
+  color: #fbbf24;
+  line-height: 1;
+}
+#wx-cond {
+  font-size: 11px;
+  color: #a0a8b4;
+}
+#wx-detail {
+  font-size: 10px;
+  color: #6b7280;
+}
+body.light-mode #wx-temp  { color: #d97706; }
+body.light-mode #wx-cond  { color: #374151; }
+body.light-mode #wx-detail { color: #6b7280; }
 .header-date { font-size: 15px; color: #79b8ff; opacity: 0.85; }
 .header-stats {
   display: flex;
@@ -1158,7 +1182,6 @@ body.light-mode #trip-origin:focus, body.light-mode #trip-destination:focus {
   }
 
   /* ── Header ── */
-  .bus-art { display: none; }
   .header-right { display: contents; }
   header { padding: 0 10px; justify-content: flex-start; gap: 6px; }
   /* [⋮ filters] [KL.my…flex] [N buses·routes] [☀️] [☰ settings] */

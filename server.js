@@ -36,6 +36,7 @@ const {
   DATA_DIR,
 } = require("./store");
 const { computePooledMedians } = require("./pooled");
+const { getWeatherForDate, getWeatherForDates, weatherCodeLabel, isRainy } = require("./weather");
 const { createSnapper } = require("./snap");
 const { correctOutliers, CORRECTION_METHODS } = require("./outliers");
 const { initRouter } = require("./router");
@@ -366,6 +367,31 @@ function recordPositionAndComputeSpeed(busId, lat, lon, tMs, speedRaw, nowMs, pr
 
 let feedCache = { ts: 0, buses: [] };
 
+// Per-hour KL weather cache — fetched once per hour, shared across all
+// appendTick calls in that hour. Non-blocking: if Open-Meteo is down,
+// weather fields write null and the bus pipeline is unaffected.
+let weatherHourCache = { date: null, hour: null, data: null };
+
+async function getCurrentWeather(tMs) {
+  // Derive KL date + hour from the tick timestamp.
+  const klMs  = tMs + 8 * 3600 * 1000;
+  const d     = new Date(klMs);
+  const date  = d.toISOString().slice(0, 10);
+  const hour  = d.getUTCHours();
+  if (weatherHourCache.date === date && weatherHourCache.hour === hour) {
+    return weatherHourCache.data;
+  }
+  try {
+    const hourly = await getWeatherForDate(date);
+    const data   = hourly[hour] || null;
+    weatherHourCache = { date, hour, data };
+    return data;
+  } catch (e) {
+    // Degrade gracefully — bus data must not be blocked.
+    return null;
+  }
+}
+
 // Match Python busapp/fetch.py: 3 attempts with 1/2/4 s backoff between them.
 // Single-shot fetches fail occasionally because data.gov.my has spotty TLS
 // reliability; one cheap retry tier closes the gap.
@@ -496,6 +522,10 @@ async function fetchFeed(cacheMs = FEED_CACHE_BASE_MS) {
   // `prev_positions = positions` semantics — a bus absent from this feed
   // tick loses its prev entry, so on its next return EKF gets dt = 1.0
   // (fresh) and calc-speed stays null.
+  // Fetch current-hour weather once per tick — shared across all buses.
+  // Non-blocking: failure returns null and weather columns write null.
+  const tickWeather = await getCurrentWeather(now);
+
   const partialBuses = [];
   const newPositions = new Map();
   for (const entity of message.entity) {
@@ -625,7 +655,8 @@ async function fetchFeed(cacheMs = FEED_CACHE_BASE_MS) {
       pb.lat,
       pb.lon,
       tickSpeeds,
-      pb.trust_score
+      pb.trust_score,
+      tickWeather
     );
 
     buses.push({
@@ -965,6 +996,59 @@ app.get("/api/heatmap", async (req, res) => {
     res.json(body);
   } catch (err) {
     console.error("[api/heatmap]", err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// GET /api/weather?date=YYYY-MM-DD  (or ?date=today)
+// Returns hourly weather for KL for the requested date.
+// Shape: { date, hours: { "0": {temp,precip,wind,code,label,rainy}, ... } }
+app.get("/api/weather", async (req, res) => {
+  try {
+    const now8 = new Date(Date.now() + 8 * 3600 * 1000);
+    const today = now8.toISOString().slice(0, 10);
+    const date = (!req.query.date || req.query.date === "today") ? today : req.query.date;
+    const hourly = await getWeatherForDate(date);
+    // Annotate each hour with a human label and rainy flag for the frontend.
+    const hours = {};
+    for (const [h, d] of Object.entries(hourly)) {
+      hours[h] = { ...d, label: weatherCodeLabel(d.code), rainy: isRainy(d) };
+    }
+    res.json({ date, hours });
+  } catch (err) {
+    console.error("[api/weather]", err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// GET /api/weather/range?start=YYYY-MM-DD&end=YYYY-MM-DD
+// Returns weather for every date in [start, end] inclusive.
+// Shape: { dates: { "YYYY-MM-DD": { hours: {...} } } }
+app.get("/api/weather/range", async (req, res) => {
+  try {
+    const { start, end } = req.query;
+    if (!start || !end) return res.status(400).json({ error: "start and end required" });
+    // Build date list.
+    const dates = [];
+    let cur = new Date(start + "T00:00:00Z");
+    const endDate = new Date(end + "T00:00:00Z");
+    while (cur <= endDate) {
+      dates.push(cur.toISOString().slice(0, 10));
+      cur.setUTCDate(cur.getUTCDate() + 1);
+    }
+    if (dates.length > 90) return res.status(400).json({ error: "range max 90 days" });
+    const weatherMap = await getWeatherForDates(dates);
+    const result = {};
+    for (const [d, hourly] of weatherMap) {
+      const hours = {};
+      for (const [h, data] of Object.entries(hourly)) {
+        hours[h] = { ...data, label: weatherCodeLabel(data.code), rainy: isRainy(data) };
+      }
+      result[d] = { hours };
+    }
+    res.json({ dates: result });
+  } catch (err) {
+    console.error("[api/weather/range]", err);
     res.status(500).json({ error: String(err) });
   }
 });

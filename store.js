@@ -98,7 +98,7 @@ setInterval(closeIdleStreams, 30_000).unref();
 //
 // Older JSONL files (pre-rename) used `speed_raw / speed_calc / speed_trust /
 // t` — `normalizeRow` below upgrades them transparently on read.
-function appendTick(busId, route, tMs, lat, lon, speeds, trustScore = null) {
+function appendTick(busId, route, tMs, lat, lon, speeds, trustScore = null, weather = null) {
   const date = klDate(tMs);
   const row = {
     bus_id: busId,
@@ -112,6 +112,10 @@ function appendTick(busId, route, tMs, lat, lon, speeds, trustScore = null) {
     speed_kalman: speeds.kalman,
     weighted_speed: speeds.trust,
     trust_score: trustScore,
+    weather_temp:   weather ? weather.temp   : null,
+    weather_precip: weather ? weather.precip : null,
+    weather_wind:   weather ? weather.wind   : null,
+    weather_code:   weather ? weather.code   : null,
   };
   getStream(date).write(JSON.stringify(row) + "\n");
 }

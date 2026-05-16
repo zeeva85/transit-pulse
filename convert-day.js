@@ -35,6 +35,10 @@ function buildSchema(parquet) {
     adj_lon:          { type: "DOUBLE", optional: true },
     snap_shape_id:    { type: "UTF8",   optional: true },
     snap_cumdist:     { type: "DOUBLE", optional: true },
+    weather_temp:     { type: "DOUBLE", optional: true },
+    weather_precip:   { type: "DOUBLE", optional: true },
+    weather_wind:     { type: "DOUBLE", optional: true },
+    weather_code:     { type: "INT32",  optional: true },
   });
 }
 
@@ -102,6 +106,10 @@ async function convertDayToParquet(klDateStr) {
       adj_lon:          toDouble(r.adj_lon),
       snap_shape_id:    r.snap_shape_id != null ? String(r.snap_shape_id) : null,
       snap_cumdist:     toDouble(r.snap_cumdist),
+      weather_temp:     toDouble(r.weather_temp),
+      weather_precip:   toDouble(r.weather_precip),
+      weather_wind:     toDouble(r.weather_wind),
+      weather_code:     r.weather_code != null ? Math.round(Number(r.weather_code)) : null,
     });
   }
 
