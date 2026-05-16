@@ -1342,9 +1342,13 @@ async function replayTodaysData() {
 }
 
 let router = null;
-initRouter()
-  .then(r => { router = r; console.log("[router] ready"); })
-  .catch(err => console.error("[router] failed to init:", err));
+if (process.env.ENABLE_ROUTER === "true") {
+  initRouter()
+    .then(r => { router = r; console.log("[router] ready"); })
+    .catch(err => console.error("[router] failed to init:", err));
+} else {
+  console.log("[router] disabled (set ENABLE_ROUTER=true to enable trip planner)");
+}
 
 replayTodaysData().finally(() => {
   app.listen(PORT, () => {
