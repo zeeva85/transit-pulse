@@ -2196,11 +2196,12 @@ function bindNewSidebarControls() {
       if (!w) return;
       const tempEl   = document.getElementById("wx-temp");
       const condEl   = document.getElementById("wx-cond");
-      const detailEl = document.getElementById("wx-detail");
+      const precipEl = document.getElementById("wx-precip");
+      const windEl   = document.getElementById("wx-wind");
       if (tempEl)   tempEl.textContent   = `${Math.round(w.temp)}°C`;
       if (condEl)   condEl.textContent   = w.label || "";
-      if (detailEl) detailEl.textContent =
-        `💧 ${w.precip != null ? w.precip.toFixed(1) : "--"} mm  🌬 ${w.wind != null ? Math.round(w.wind) : "--"} km/h`;
+      if (precipEl) precipEl.textContent = `💧 ${w.precip != null ? w.precip.toFixed(1) : "--"} mm`;
+      if (windEl)   windEl.textContent   = `🌬 ${w.wind != null ? Math.round(w.wind) : "--"} km/h`;
     })
     .catch(() => {});
 
@@ -2221,7 +2222,7 @@ function bindNewSidebarControls() {
   if (!mq.matches) {
     // ── DESKTOP ──────────────────────────────────────────────────────────
     // Weather on immediately, brand fades at 5s, bus art fades in. Done.
-    fadeIn(weatherEl, "flex");
+    fadeIn(weatherEl, "grid");
     setTimeout(() => {
       fadeOut(meta, () => fadeIn(art, "block"));
     }, 5000);
@@ -2232,7 +2233,7 @@ function bindNewSidebarControls() {
     const SLOT_MS = 5000;
 
     function showWeather() {
-      fadeIn(weatherEl, "flex", () => {
+      fadeIn(weatherEl, "grid", () => {
         setTimeout(() => fadeOut(weatherEl, showArt), SLOT_MS);
       });
     }

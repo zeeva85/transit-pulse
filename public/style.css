@@ -90,39 +90,33 @@ body.light-mode .bus-art.bus-art--ended  { color: #cc2222; text-shadow: none; }
   text-shadow: 0 0 6px rgba(255, 255, 255, 0.3);
 }
 #header-weather {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: auto minmax(0, 90px);
+  grid-template-rows: auto auto;
+  column-gap: 10px;
+  row-gap: 2px;
   align-self: center;
-  gap: 2px;
-  min-width: 90px;
 }
-#wx-temp {
-  font-size: 22px;
-  font-weight: 700;
-  color: #fbbf24;
-  line-height: 1;
-}
-#wx-cond {
-  font-size: 11px;
-  color: #a0a8b4;
-}
-#wx-detail {
-  font-size: 10px;
-  color: #6b7280;
-}
-body.light-mode #wx-temp  { color: #d97706; }
-body.light-mode #wx-cond  { color: #374151; }
-body.light-mode #wx-detail { color: #6b7280; }
+#wx-temp   { grid-column: 1; grid-row: 1; align-self: center; font-size: 28px; font-weight: 700; color: #fbbf24; line-height: 1; }
+#wx-cond   { grid-column: 2; grid-row: 1; align-self: center; font-size: 14.5px; color: #a0a8b4; }
+#wx-precip { grid-column: 1; grid-row: 2; align-self: center; font-size: 14px; color: #e6e6e6; white-space: nowrap; }
+#wx-wind   { grid-column: 2; grid-row: 2; align-self: center; font-size: 14px; color: #e6e6e6; white-space: nowrap; }
+body.light-mode #wx-temp   { color: #d97706; }
+body.light-mode #wx-cond   { color: #374151; }
+body.light-mode #wx-precip { color: #000000; }
+body.light-mode #wx-wind   { color: #000000; }
 .header-date { font-size: 15px; color: #79b8ff; opacity: 0.85; }
 .header-stats {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 15px;
-  color: #a0a8b4;
+  display: grid;
+  grid-template-columns: auto auto;
+  column-gap: 5px;
+  row-gap: 1px;
+  align-self: center;
+  flex-shrink: 0;
 }
-.hstat strong { color: #e6e6e6; font-weight: 700; }
-.hstat-sep { opacity: 0.35; }
+.header-stats strong { font-size: 14px; color: #e6e6e6; font-weight: 700; justify-self: end; }
+.hstat-label { font-size: 14px; color: #a0a8b4; justify-self: start; }
+.hstat-sep { display: none; }
 
 .theme-toggle-btn {
   width: 34px;
@@ -151,7 +145,8 @@ body.light-mode .header-brand-meta h1 { color: #1f2328; }
 body.light-mode .header-date { color: #0969da; }
 body.light-mode .header-updated { color: #57606a; }
 body.light-mode .header-stats { color: #57606a; }
-body.light-mode .hstat strong { color: #1f2328; }
+body.light-mode .header-stats strong { color: #1f2328; }
+body.light-mode .hstat-label { color: #57606a; }
 body.light-mode .bus-art { color: #222; text-shadow: none; }
 body.light-mode .theme-toggle-btn {
   border-color: #d0d7de;
@@ -1187,9 +1182,7 @@ body.light-mode #trip-origin:focus, body.light-mode #trip-destination:focus {
   /* [⋮ filters] [KL.my…flex] [N buses·routes] [☀️] [☰ settings] */
   #mobile-sidebar-btn { order: 1; }
   .header-brand       { order: 2; flex: 1; min-width: 0; gap: 0; }
-  .header-stats       { order: 3; font-size: 12px; gap: 1px; flex-shrink: 0; flex-direction: column; align-items: flex-end; }
-  .header-stats .hstat strong { font-size: 13px; }
-  .hstat-sep          { display: none; }
+  .header-stats       { order: 3; }
   #theme-toggle       { order: 4; }
   #hamburger-btn      { order: 5; position: static; transform: none; }
   .header-brand-meta h1 { font-size: 14px; }
