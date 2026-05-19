@@ -443,6 +443,19 @@ function busFillColor(bus) {
   return speedColor(effectiveSpeed(bus));
 }
 
+// When the route-search filter is active, dim non-matching bus dots to near-
+// invisible so the matching routes stand out on the map.
+function busFillColorWithFilter(bus) {
+  const q = window.busTable ? window.busTable.getFilterText() : "";
+  if (q) {
+    const match =
+      (bus.route || "").toLowerCase().includes(q) ||
+      (bus.bus_id || "").toLowerCase().includes(q);
+    if (!match) return [90, 90, 90, 35];
+  }
+  return busFillColor(bus);
+}
+
 function busRadius(bus) {
   // Pixel radius scales with zoom so dots stay readable at any zoom level.
   // zoom 9 → ~5px, zoom 12 → ~8px, zoom 15 → ~12px, zoom 17 → ~15px
@@ -1143,7 +1156,7 @@ function rebuildLayers() {
         id: "buses",
         data: dotData,
         getPosition: (b) => [b.lon, b.lat],
-        getFillColor: busFillColor,
+        getFillColor: busFillColorWithFilter,
         getRadius: busRadius,
         radiusUnits: "pixels",
         pickable: true,
@@ -2036,6 +2049,7 @@ async function start() {
     window.busTable.mount({
       onSelect: (id) => (id ? selectBus(id) : clearSelection()),
       getSpeed: (b) => effectiveSpeed(b),
+      onFilterChange: () => rebuildLayers(),
     });
   }
   if (window.busTimeline) {
@@ -2174,6 +2188,80 @@ function bindNewSidebarControls() {
   updateBusArtStatus();
   setInterval(updateBusArtStatus, 60_000);
 }
+
+// ── Weather popover ──────────────────────────────────────────────────────────
+// Click the header weather widget to see the full 24-hour forecast for the
+// currently-viewed date (today or any historical date).
+(function () {
+  const trigger = document.getElementById("header-weather");
+  if (!trigger) return;
+
+  const pop = document.createElement("div");
+  pop.id = "weather-popover";
+  pop.hidden = true;
+  document.body.appendChild(pop);
+
+  const WX_ICONS = {
+    0:"☀️",1:"🌤",2:"⛅",3:"☁️",45:"🌫",48:"🌫",
+    51:"🌦",53:"🌦",55:"🌧",61:"🌧",63:"🌧",65:"🌧",
+    71:"❄️",73:"❄️",75:"❄️",80:"🌦",81:"🌦",82:"🌧",
+    95:"⛈",96:"⛈",99:"⛈",
+  };
+  function wxIcon(code) {
+    if (code == null) return "";
+    return WX_ICONS[code] || (code < 50 ? "☁️" : code < 70 ? "🌧" : code < 80 ? "❄️" : "⛈");
+  }
+
+  function renderHours(hours, dateStr) {
+    const isToday = !dateStr || dateStr === "today";
+    const klHour = isToday ? (((Date.now() + 8 * 3600_000) / 3600_000) | 0) % 24 : -1;
+    const label = isToday ? "Today" : dateStr;
+    let html = `<div class="wx-pop-header">24-hour forecast · ${label}</div>`;
+    for (let h = 0; h < 24; h++) {
+      const w = hours[h] || hours[String(h)] || {};
+      html +=
+        `<div class="wx-pop-row${h === klHour ? " wx-pop-current" : ""}">` +
+        `<span class="wx-pop-hour">${String(h).padStart(2, "0")}:00</span>` +
+        `<span class="wx-pop-icon">${wxIcon(w.code)}</span>` +
+        `<span class="wx-pop-temp">${w.temp != null ? Math.round(w.temp) + "°" : "—"}</span>` +
+        `<span class="wx-pop-precip">💧${w.precip != null ? w.precip.toFixed(1) : "—"}</span>` +
+        `<span class="wx-pop-wind">🌬${w.wind != null ? Math.round(w.wind) : "—"}</span>` +
+        `</div>`;
+    }
+    return html;
+  }
+
+  async function open() {
+    const rect = trigger.getBoundingClientRect();
+    pop.style.top = `${rect.bottom + 6}px`;
+    pop.style.right = `${window.innerWidth - rect.right}px`;
+    pop.style.left = "";
+    pop.innerHTML = `<div class="wx-pop-header">Loading…</div>`;
+    pop.hidden = false;
+
+    const dateStr = (typeof state !== "undefined" && state.date && state.date !== "today")
+      ? state.date : "today";
+    try {
+      const res = await fetch(`/api/weather?date=${encodeURIComponent(dateStr)}`);
+      if (!res.ok) throw new Error();
+      const { hours } = await res.json();
+      if (!hours) throw new Error();
+      pop.innerHTML = renderHours(hours, dateStr);
+      const cur = pop.querySelector(".wx-pop-current");
+      if (cur) requestAnimationFrame(() => cur.scrollIntoView({ block: "center", behavior: "smooth" }));
+    } catch {
+      pop.innerHTML = `<div class="wx-pop-header" style="color:#a0a8b4">Weather unavailable</div>`;
+    }
+  }
+
+  trigger.addEventListener("click", (e) => {
+    e.stopPropagation();
+    pop.hidden ? open() : (pop.hidden = true);
+  });
+  document.addEventListener("click", (e) => {
+    if (!pop.hidden && !pop.contains(e.target) && e.target !== trigger) pop.hidden = true;
+  });
+})();
 
 // ── Header sequence ───────────────────────────────────────────────────────
 // Desktop: weather always visible from load; brand fades out at 5s, bus art

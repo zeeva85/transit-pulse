@@ -12,15 +12,22 @@
   let lastBuses = [];
   let historicalMode = false;
 
-  function mount({ onSelect, getSpeed }) {
+  function mount({ onSelect, getSpeed, onFilterChange }) {
     tbody = document.getElementById("bus-table-body");
     onSelectBus = onSelect;
     onGetSpeed = getSpeed;
     searchInput = document.getElementById("route-search");
     searchCount = document.getElementById("route-search-count");
     if (searchInput) {
-      searchInput.addEventListener("input", () => render(lastBuses));
+      searchInput.addEventListener("input", () => {
+        render(lastBuses);
+        if (onFilterChange) onFilterChange();
+      });
     }
+  }
+
+  function getFilterText() {
+    return searchInput ? searchInput.value.trim().toLowerCase() : "";
   }
 
   function setHistorical(flag) {
@@ -174,5 +181,5 @@
     return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   }
 
-  window.busTable = { mount, render, setSelected, setHistorical };
+  window.busTable = { mount, render, setSelected, setHistorical, getFilterText };
 })();
