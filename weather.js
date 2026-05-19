@@ -26,6 +26,8 @@ const DATA_DIR = path.join(__dirname, "data");
 
 // Open-Meteo archive endpoint (historical, no API key needed).
 // For the current day we fall back to the forecast endpoint.
+// For the current hour we additionally fetch the `current` endpoint which
+// returns near-real-time conditions (no model lag) and override the slot.
 const ARCHIVE_URL  = "https://archive-api.open-meteo.com/v1/archive";
 const FORECAST_URL = "https://api.open-meteo.com/v1/forecast";
 const VARIABLES    = "temperature_2m,precipitation,windspeed_10m,weathercode";
@@ -79,17 +81,46 @@ async function fetchFromNetwork(date) {
   const res = await fetch(url, { timeout: 15_000 });
   if (!res.ok) throw new Error(`Open-Meteo ${res.status} for ${date}`);
   const json = await res.json();
-  return parseResponse(json);
+  const hourly = parseResponse(json);
+
+  // For today, override the current hour with real-time `current` conditions.
+  // The hourly forecast has model lag; the `current` endpoint is near-realtime.
+  if (isToday) {
+    try {
+      const curUrl = `${FORECAST_URL}?latitude=${LAT}&longitude=${LON}` +
+                     `&current=${VARIABLES}` +
+                     `&timezone=Asia%2FKuala_Lumpur`;
+      const curRes = await fetch(curUrl, { timeout: 15_000 });
+      if (curRes.ok) {
+        const curJson = await curRes.json();
+        const c = curJson.current;
+        if (c && c.time) {
+          const hour = parseInt(c.time.slice(11, 13), 10);
+          hourly[hour] = {
+            temp:   c.temperature_2m ?? null,
+            precip: c.precipitation  ?? null,
+            wind:   c.windspeed_10m  ?? null,
+            code:   c.weathercode    ?? null,
+          };
+        }
+      }
+    } catch (_) { /* current fetch failed — hourly forecast stands */ }
+  }
+
+  return hourly;
 }
 
 // Main entry point — returns HourlyWeather for a single date string "YYYY-MM-DD".
 // Reads from mem cache → disk cache → network, in that order.
+// Today's date skips both caches so the caller always gets a fresh fetch
+// (server.js:getCurrentWeather throttles to once per hour via weatherHourCache).
 async function getWeatherForDate(date) {
-  // 1. Memory cache.
-  if (memCache.has(date)) return memCache.get(date);
-
-  // 2. Disk cache (skip for today — data still accumulating).
   const today = klDateToday();
+
+  // 1. Memory cache (past dates only — today is always fetched fresh).
+  if (date !== today && memCache.has(date)) return memCache.get(date);
+
+  // 2. Disk cache (past dates only).
   const file = cacheFile(date);
   if (date !== today && fs.existsSync(file)) {
     try {
@@ -102,12 +133,12 @@ async function getWeatherForDate(date) {
   // 3. Network fetch.
   const hourly = await fetchFromNetwork(date);
 
-  // Persist to disk for past dates (today keeps updating so we don't cache it).
+  // Persist/cache past dates only.
   if (date !== today) {
     try { fs.writeFileSync(file, JSON.stringify(hourly)); } catch (_) {}
+    _memSet(date, hourly);
   }
 
-  _memSet(date, hourly);
   return hourly;
 }
 
