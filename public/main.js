@@ -2275,23 +2275,28 @@ function bindNewSidebarControls() {
   const weatherEl  = document.getElementById("header-weather");
   if (!meta || !art || !weatherEl) return;
 
-  // Populate weather widget — shared by both paths.
-  fetch("/api/weather?date=today")
-    .then(r => r.json())
-    .then(({ hours }) => {
-      const klHour = new Date(Date.now() + 8 * 3600 * 1000).getUTCHours();
-      const w = hours[klHour] || hours[String(klHour)] || null;
-      if (!w) return;
-      const tempEl   = document.getElementById("wx-temp");
-      const condEl   = document.getElementById("wx-cond");
-      const precipEl = document.getElementById("wx-precip");
-      const windEl   = document.getElementById("wx-wind");
-      if (tempEl)   tempEl.textContent   = `${Math.round(w.temp)}°C`;
-      if (condEl)   condEl.textContent   = w.label || "";
-      if (precipEl) precipEl.textContent = `💧 ${w.precip != null ? w.precip.toFixed(1) : "--"} mm`;
-      if (windEl)   windEl.textContent   = `🌬 ${w.wind != null ? Math.round(w.wind) : "--"} km/h`;
-    })
-    .catch(() => {});
+  // Populate weather widget — shared by both paths. Refreshes every 5 min so
+  // the displayed conditions track Open-Meteo's real-time current reading.
+  function refreshWeatherWidget() {
+    fetch("/api/weather?date=today")
+      .then(r => r.json())
+      .then(({ hours }) => {
+        const klHour = new Date(Date.now() + 8 * 3600 * 1000).getUTCHours();
+        const w = hours[klHour] || hours[String(klHour)] || null;
+        if (!w) return;
+        const tempEl   = document.getElementById("wx-temp");
+        const condEl   = document.getElementById("wx-cond");
+        const precipEl = document.getElementById("wx-precip");
+        const windEl   = document.getElementById("wx-wind");
+        if (tempEl)   tempEl.textContent   = `${Math.round(w.temp)}°C`;
+        if (condEl)   condEl.textContent   = w.label || "";
+        if (precipEl) precipEl.textContent = `💧 ${w.precip != null ? w.precip.toFixed(1) : "--"} mm`;
+        if (windEl)   windEl.textContent   = `🌬 ${w.wind != null ? Math.round(w.wind) : "--"} km/h`;
+      })
+      .catch(() => {});
+  }
+  refreshWeatherWidget();
+  setInterval(refreshWeatherWidget, 5 * 60 * 1000);
 
   function fadeOut(el, cb) {
     el.style.transition = `opacity ${FADE_MS}ms`;

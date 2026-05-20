@@ -1449,6 +1449,14 @@ replayTodaysData().finally(() => {
 // itself is single-flight (rolloverInFlight guard) so concurrent ticks are safe.
 setInterval(() => maybeRunDayRollover(Date.now()), 60_000).unref();
 
+// Background data-collection poller — ensures GTFS-RT data is fetched and
+// written to JSONL even when no browser client is actively polling /api/buses.
+// Without this, the server collects data ONLY when a browser requests /api/buses,
+// so overnight or between sessions the JSONL stays empty.
+// Fires every FEED_CACHE_BASE_MS (25 s); fetchFeed's internal cache check means
+// it only actually hits the upstream feed when the cache is stale.
+setInterval(() => fetchFeed(FEED_CACHE_BASE_MS).catch(() => {}), FEED_CACHE_BASE_MS).unref();
+
 async function startupMaintenance() {
   const today = klDate(Date.now());
   const pending = listDates().filter(
