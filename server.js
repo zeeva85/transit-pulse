@@ -366,11 +366,16 @@ function recordPositionAndComputeSpeed(busId, lat, lon, tMs, speedRaw, nowMs, pr
 // ──────────────────────────────────────────────────────────────────────────
 
 let feedCache = { ts: 0, buses: [] };
+let fetchInFlight = false;
 
 // Per-hour KL weather cache — fetched once per hour, shared across all
 // appendTick calls in that hour. Non-blocking: if Open-Meteo is down,
 // weather fields write null and the bus pipeline is unaffected.
-let weatherHourCache = { date: null, hour: null, data: null };
+// Cache weather per (date, hour) with a 10-minute TTL so mid-hour Open-Meteo
+// model corrections (e.g. forecast said drizzle, model updates to sunny 20 min
+// later) are reflected in JSONL rows within ~10 min, not at the next hour tick.
+const WEATHER_CACHE_TTL_MS = 10 * 60 * 1000;
+let weatherHourCache = { date: null, hour: null, data: null, fetchedAt: 0 };
 
 async function getCurrentWeather(tMs) {
   // Derive KL date + hour from the tick timestamp.
@@ -378,13 +383,14 @@ async function getCurrentWeather(tMs) {
   const d     = new Date(klMs);
   const date  = d.toISOString().slice(0, 10);
   const hour  = d.getUTCHours();
-  if (weatherHourCache.date === date && weatherHourCache.hour === hour) {
+  const age   = Date.now() - weatherHourCache.fetchedAt;
+  if (weatherHourCache.date === date && weatherHourCache.hour === hour && age < WEATHER_CACHE_TTL_MS) {
     return weatherHourCache.data;
   }
   try {
     const hourly = await getWeatherForDate(date);
     const data   = hourly[hour] || null;
-    weatherHourCache = { date, hour, data };
+    weatherHourCache = { date, hour, data, fetchedAt: Date.now() };
     return data;
   } catch (e) {
     // Degrade gracefully — bus data must not be blocked.
@@ -504,6 +510,15 @@ async function maybeRunDayRollover(nowMs) {
 async function fetchFeed(cacheMs = FEED_CACHE_BASE_MS) {
   const now = Date.now();
   if (now - feedCache.ts < cacheMs) return feedCache.buses;
+
+  // Single-flight guard — the background polling interval and HTTP handlers can
+  // both call fetchFeed concurrently. Since fetchFeed is async (awaits network),
+  // two instances can interleave and corrupt shared state (prevPositions, EKF).
+  // When a fetch is already in flight, return the current cache immediately.
+  if (fetchInFlight) return feedCache.buses;
+  fetchInFlight = true;
+
+  try {
 
   // Day-rollover hook: when this fetch crosses KL midnight, kick off
   // background augmentation of yesterday's JSONL. We don't await it so the
@@ -689,6 +704,10 @@ async function fetchFeed(cacheMs = FEED_CACHE_BASE_MS) {
   // day. They're cleared on midnight rollover only.
   feedCache = { ts: now, buses };
   return buses;
+
+  } finally {
+    fetchInFlight = false;
+  }
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -1453,9 +1472,11 @@ setInterval(() => maybeRunDayRollover(Date.now()), 60_000).unref();
 // written to JSONL even when no browser client is actively polling /api/buses.
 // Without this, the server collects data ONLY when a browser requests /api/buses,
 // so overnight or between sessions the JSONL stays empty.
-// Fires every FEED_CACHE_BASE_MS (25 s); fetchFeed's internal cache check means
-// it only actually hits the upstream feed when the cache is stale.
-setInterval(() => fetchFeed(FEED_CACHE_BASE_MS).catch(() => {}), FEED_CACHE_BASE_MS).unref();
+// Fires every 25 s but passes a 35 s cache window: if a browser has written
+// within the last 35 s the background skips silently, preventing double-writes.
+// When no browser is active the cache is always stale and the background owns
+// all writes (~every 25 s, matching the upstream 30 s feed cadence).
+setInterval(() => fetchFeed(35_000).catch(() => {}), 30_000).unref();
 
 async function startupMaintenance() {
   const today = klDate(Date.now());
