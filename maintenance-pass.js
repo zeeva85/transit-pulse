@@ -32,7 +32,7 @@ function bucketOf(tMs) {
 
 function median(arr) {
   if (arr.length === 0) return null;
-  arr.sort((a, b) => a - b);
+  arr = arr.slice().sort((a, b) => a - b);
   const n = arr.length;
   return n % 2 === 1 ? arr[(n - 1) >> 1] : (arr[n / 2 - 1] + arr[n / 2]) / 2;
 }
@@ -40,16 +40,27 @@ function median(arr) {
 function buildCrossDayModelFromRow() {
   const byBusRouteBucket = new Map();
   const byRouteBucket = new Map();
+  const byBusBucket = new Map(); // tier 3: (bus_id, bucket) — includes unknown-route buses
   let totalRows = 0;
 
   function consume(row) {
     if (row.lat == null || row.lon == null) return;
     if (!Number.isFinite(row.lat) || !Number.isFinite(row.lon)) return;
-    // Match Python build_cross_day_position_model — Unknown / null routes
-    // are excluded from the model entirely (they'd pool into a shared
-    // fallback bucket and poison the (route, bucket) lookup tier).
-    if (!row.route || row.route === "Unknown") return;
     const b = bucketOf(row.time);
+
+    // Tier 3: all rows with valid positions (includes unknown-route). Must be
+    // accumulated before the unknown-route early-return below so unknown-route
+    // buses still get a typical position for adj_lat/adj_lon cleanup.
+    const k3 = `${row.bus_id}|${b}`;
+    let v3 = byBusBucket.get(k3);
+    if (!v3) { v3 = { lats: [], lons: [] }; byBusBucket.set(k3, v3); }
+    v3.lats.push(row.lat);
+    v3.lons.push(row.lon);
+
+    // Match Python build_cross_day_position_model — Unknown / null routes
+    // are excluded from Tiers 1 & 2 (they'd pool into a shared fallback
+    // bucket and poison the (route, bucket) lookup tier).
+    if (!row.route || row.route === "Unknown") return;
     const route = row.route;
     const k1 = `${row.bus_id}|${route}|${b}`;
     const k2 = `${route}|${b}`;
@@ -70,7 +81,7 @@ function buildCrossDayModelFromRow() {
     totalRows += 1;
   }
 
-  return { consume, byBusRouteBucket, byRouteBucket, totalRowsRef: () => totalRows };
+  return { consume, byBusRouteBucket, byRouteBucket, byBusBucket, totalRowsRef: () => totalRows };
 }
 
 function finalizeCrossDayModel(ctx, daysScanned = 0) {
@@ -82,9 +93,14 @@ function finalizeCrossDayModel(ctx, daysScanned = 0) {
   for (const [k, v] of ctx.byRouteBucket) {
     final2.set(k, { lat: median(v.lats), lon: median(v.lons), n: v.lats.length });
   }
+  const final3 = new Map();
+  for (const [k, v] of ctx.byBusBucket) {
+    final3.set(k, { lat: median(v.lats), lon: median(v.lons), n: v.lats.length });
+  }
   return {
     byBusRouteBucket: final1,
     byRouteBucket: final2,
+    byBusBucket: final3,
     total_rows: ctx.totalRowsRef(),
     days_scanned: daysScanned,
     built_at_ms: Date.now(),

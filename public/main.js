@@ -3,6 +3,21 @@
 
 const KL_CENTER = APP_CONFIG.KL_CENTER;
 
+// Module-level KL time formatter — reused across trail rendering and period
+// filtering to avoid allocating a new Intl.DateTimeFormat per bus per frame.
+const _KL_HHMM_FMT = new Intl.DateTimeFormat("en-US", {
+  timeZone: "Asia/Kuala_Lumpur",
+  hour: "numeric",
+  hourCycle: "h23",
+  minute: "2-digit",
+});
+function klHourFractional(tMs) {
+  const parts = _KL_HHMM_FMT.formatToParts(new Date(tMs));
+  const hh = parseInt(parts.find((p) => p.type === "hour").value, 10);
+  const mm = parseInt(parts.find((p) => p.type === "minute").value, 10);
+  return hh + mm / 60;
+}
+
 // Apply CSS custom properties from config so style.css can reference them
 document.documentElement.style.setProperty("--dim-deck-opacity", APP_CONFIG.DIM_DECK_OPACITY);
 
@@ -23,6 +38,7 @@ const MAP_STYLES = {
 let mapStyle = "dark";
 let map = null;
 let deckOverlay = null;
+let appSetBearing = false; // true when fitBoundsOptimal set a non-zero bearing
 let cachedZoom = KL_CENTER.zoom;
 let staticLayers = [];   // layers built by rebuildLayers, pulse appended on top
 let pulsePhase = 0;
@@ -527,16 +543,9 @@ function buildTrailRows(buses, trailModeOverride = null, periodHours = null) {
   let inPeriod = null;
   if (periodHours) {
     const [hStart, hEnd] = periodHours;
-    const klFmtPeriod = new Intl.DateTimeFormat("en-US", {
-      timeZone: "Asia/Kuala_Lumpur",
-      hour: "numeric", hourCycle: "h23", minute: "2-digit",
-    });
     inPeriod = (tMs) => {
       if (tMs == null) return false;
-      const parts = klFmtPeriod.formatToParts(new Date(tMs));
-      const hh = parseInt(parts.find((p) => p.type === "hour").value, 10);
-      const mm = parseInt(parts.find((p) => p.type === "minute").value, 10);
-      const frac = hh + mm / 60;
+      const frac = klHourFractional(tMs);
       if (hEnd > 24) return frac >= hStart || frac < (hEnd - 24);
       return frac >= hStart && frac < hEnd;
     };
@@ -566,18 +575,6 @@ function buildTrailRows(buses, trailModeOverride = null, periodHours = null) {
     //  - Speed (Traffic): same red/orange/green as Python `_speed_to_color`
     //    in both views.
     const historical = isHistoricalDate();
-    const klFmt = new Intl.DateTimeFormat("en-US", {
-      timeZone: "Asia/Kuala_Lumpur",
-      hour: "numeric",
-      hourCycle: "h23",
-      minute: "2-digit",
-    });
-    function klHourFractional(tMs) {
-      const parts = klFmt.formatToParts(new Date(tMs));
-      const hh = parseInt(parts.find((p) => p.type === "hour").value, 10);
-      const mm = parseInt(parts.find((p) => p.type === "minute").value, 10);
-      return hh + mm / 60;
-    }
 
     function segColor(p1, p2, i) {
       if (clusterColor) return clusterColor;
@@ -1354,6 +1351,7 @@ function fitBoundsOptimal(minLat, maxLat, minLon, maxLon, bearing) {
     const mapAspect = mapEl ? mapEl.offsetWidth / mapEl.offsetHeight : 1.6;
     bearing = (routeW / Math.max(routeH, 0.001)) < (1 / mapAspect) ? 90 : 0;
   }
+  appSetBearing = bearing !== 0;
   map.fitBounds([[minLon, minLat], [maxLon, maxLat]], { bearing, padding: 60, duration: 600, maxZoom: 16 });
 }
 
@@ -1431,7 +1429,10 @@ function clearSelection() {
   setMapDim(false);
   rebuildLayers();
   if (map) {
-    map.flyTo({ center: [KL_CENTER.lon, KL_CENTER.lat], zoom: KL_CENTER.zoom, bearing: 0, duration: 600 });
+    const flyOpts = { center: [KL_CENTER.lon, KL_CENTER.lat], zoom: KL_CENTER.zoom, duration: 600 };
+    if (appSetBearing) flyOpts.bearing = 0;
+    appSetBearing = false;
+    map.flyTo(flyOpts);
   }
 }
 

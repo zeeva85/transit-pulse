@@ -318,6 +318,8 @@ function astar(edges, nodes, _fromId, _toId, congGrid) {
   const fromId = String(_fromId);
   const toId   = String(_toId);
 
+  if (fromId === toId) return null;
+
   const [toLat, toLon] = nodes[toId];
   const maxSpeedMs     = MAX_SPEED_KMH / 3.6;
 
@@ -392,8 +394,9 @@ class Router {
 
     const visited = new Set([seedId]);
     const queue   = [seedId];
-    while (queue.length) {
-      const cur = queue.shift();
+    let head = 0;
+    while (head < queue.length) {
+      const cur = queue[head++];
       for (const [_nbr] of (this.edges[cur] || [])) {
         const nbr = String(_nbr);
         if (!visited.has(nbr)) {

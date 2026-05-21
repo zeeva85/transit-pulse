@@ -68,7 +68,7 @@ async function computePooledMedians() {
       }
       for (const m of MODES) {
         const v = row[KEY_BY_MODE[m]];
-        if (v != null && v >= 0 && v <= 200) bus[m].push(v);
+        if (v != null && v >= 0) bus[m].push(v);
       }
     });
     for (const bus of byBus.values()) {

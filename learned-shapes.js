@@ -31,25 +31,14 @@ const {
   LEARNED_PROMOTION_MAX_SPREAD_M: PROMOTION_MAX_SPREAD_M,
 } = require("./config");
 const BUCKET_MIN = 30; // half-hour bucket width in minutes (structural — not tuneable)
+const KL_OFFSET_MS = 8 * 3600 * 1000; // UTC+8, no DST
 
+// Half-hour bucket index (0–47) anchored to KL midnight.
+// Uses fixed UTC+8 offset arithmetic — same as cross-day.js:bucketOf() —
+// to avoid allocating Intl.DateTimeFormat objects in hot per-row loops.
 function bucketOfKL(tMs) {
-  const d = new Date(tMs);
-  const hour = parseInt(
-    new Intl.DateTimeFormat("en-US", {
-      timeZone: "Asia/Kuala_Lumpur",
-      hour: "numeric",
-      hourCycle: "h23",
-    }).format(d),
-    10
-  );
-  const minute = parseInt(
-    new Intl.DateTimeFormat("en-US", {
-      timeZone: "Asia/Kuala_Lumpur",
-      minute: "2-digit",
-    }).format(d),
-    10
-  );
-  return ((hour * 60 + minute) / BUCKET_MIN) | 0;
+  const secondsInDay = ((tMs + KL_OFFSET_MS) / 1000 | 0) % 86400;
+  return (secondsInDay / (BUCKET_MIN * 60)) | 0;
 }
 
 function isUnknownRoute(route) {
@@ -97,7 +86,6 @@ async function accumulateUnknownPositions({ onProgress = null } = {}) {
       if (promoted.has(row.bus_id)) return;
       const key = `${row.bus_id}|${d.date}`;
       if (seen.has(key)) return;
-      seen.add(key);
       out.write(
         JSON.stringify({
           bus_id: row.bus_id,

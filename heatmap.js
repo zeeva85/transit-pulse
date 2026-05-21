@@ -11,7 +11,7 @@
 const { binEdges, categorize, PHYSICAL_ANCHOR, SPIKE_THRESHOLD } = require("./bins");
 const { HEATMAP_SAMPLES_PER_CELL: SAMPLES_PER_BUSHOUR_CELL, HEATMAP_HIST_CACHE_LIMIT: HIST_CACHE_LIMIT } = require("./config");
 
-const MODES = ["raw", "corrected", "calc", "kalman", "trust"];
+const MODES = ["raw", "corrected", "kalman", "trust", "calc"];
 
 const KL_TZ = "Asia/Kuala_Lumpur";
 const KL_HOUR_FMT = new Intl.DateTimeFormat("en-US", {
@@ -61,6 +61,10 @@ function makeAccumulator() {
   const busSamples = new Map();
   let totalSamples = 0;
   let oldestSampleMs = null;
+  // Explicit KL date for this accumulator window. Set when clearAccumulator()
+  // is called at midnight rollover so the heatmap always reports the correct
+  // date even if oldestSampleMs is null (fresh restart, no samples yet).
+  let currentKlDate = klDate(Date.now());
 
   function recordSample(busId, route, tMs, speeds) {
     const hour = klHour(tMs);
@@ -77,7 +81,7 @@ function makeAccumulator() {
     perMode.route = route;
     for (const m of MODES) {
       const v = speeds[m];
-      if (v == null || v < 0 || v > 200) continue;
+      if (v == null || v < 0) continue;
       pushCapped(perMode[m], v, SAMPLES_PER_BUSHOUR_CELL);
       totalSamples += 1;
     }
@@ -94,6 +98,7 @@ function makeAccumulator() {
     busSamples.clear();
     totalSamples = 0;
     oldestSampleMs = null;
+    currentKlDate = klDate(Date.now());
   }
 
   function buildHeatmap({ mode = "trust", anchor = null } = {}) {
@@ -149,7 +154,7 @@ function makeAccumulator() {
       edges: edges.map((e) => Math.round(e * 100) / 100),
       spike_threshold: spike,
       tz: KL_TZ,
-      kl_date: oldestSampleMs != null ? klDate(oldestSampleMs) : klDate(nowMs),
+      kl_date: currentKlDate,
       routes,
       hours: Array.from({ length: 24 }, (_, i) => i),
       cells,

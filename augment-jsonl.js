@@ -18,6 +18,7 @@ const fs = require("fs");
 const path = require("path");
 const readline = require("readline");
 const { normalizeRow } = require("./store");
+const { adjustRow } = require("./cross-day");
 
 const DATA_DIR = path.join(__dirname, "data");
 
@@ -106,35 +107,6 @@ async function augmentJsonlFile(date, model, snapper, shapesByRoute, inferredByB
 
   // Per-bus previous-shape tracker so snapPoint can apply Pass-18 stickiness.
   const prevShapeByBus = new Map();
-  // Cross-day haversine for the 2 km deviation test.
-  const EARTH_R_KM = 6371.0088;
-  const toRad = (x) => (x * Math.PI) / 180;
-  function haversineKm(lat1, lon1, lat2, lon2) {
-    const dLat = toRad(lat2 - lat1);
-    const dLon = toRad(lon2 - lon1);
-    const a =
-      Math.sin(dLat / 2) ** 2 +
-      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-    return 2 * EARTH_R_KM * Math.asin(Math.sqrt(a));
-  }
-  // Half-hour bucket in KL time. Same convention as cross-day.js / Python.
-  const KL_HOUR_FMT = new Intl.DateTimeFormat("en-US", {
-    timeZone: "Asia/Kuala_Lumpur",
-    hour: "numeric",
-    hourCycle: "h23",
-  });
-  const KL_MINUTE_FMT = new Intl.DateTimeFormat("en-US", {
-    timeZone: "Asia/Kuala_Lumpur",
-    minute: "2-digit",
-  });
-  function bucketOf(tMs) {
-    const d = new Date(tMs);
-    const h = parseInt(KL_HOUR_FMT.format(d), 10);
-    const m = parseInt(KL_MINUTE_FMT.format(d), 10);
-    return ((h * 60 + m) / 30) | 0;
-  }
-
-  const DEVIATION_THRESHOLD_M = 2000; // 2 km — beyond this, raw is replaced.
 
   let augmentedRows = 0;
   const tmp = file + ".tmp";
@@ -144,30 +116,18 @@ async function augmentJsonlFile(date, model, snapper, shapesByRoute, inferredByB
     const augmented = { ...row };
     const route = row.route;
     const knownRoute = route && route !== "Unknown";
-    const bucket = bucketOf(row.time);
 
-    // adj_lat / adj_lon: prefer raw when within 2 km of typical, otherwise
-    // substitute typical. When no typical exists at all, fall through to
-    // raw (Python "case 3" — leave NaN; we use raw here because JSONL has
-    // no NaN distinct from missing, and the renderer already drops rows
-    // with null lat/lon).
+    // adj_lat / adj_lon: delegate to cross-day.js:adjustRow which handles all
+    // 3 lookup tiers (including Tier 3 byBusBucket for unknown-route buses)
+    // and fractional bucket interpolation. Returns null when no typical
+    // position exists (case 3) — fall through to raw in that case.
     let adjLat = row.lat;
     let adjLon = row.lon;
-    if (model && knownRoute) {
-      const tier =
-        model.byBusRouteBucket.get(`${row.bus_id}|${route}|${bucket}`) ||
-        model.byRouteBucket.get(`${route}|${bucket}`);
-      if (tier && tier.lat != null && tier.lon != null) {
-        if (row.lat != null && row.lon != null) {
-          const distKm = haversineKm(row.lat, row.lon, tier.lat, tier.lon);
-          if (distKm * 1000 > DEVIATION_THRESHOLD_M) {
-            adjLat = tier.lat;
-            adjLon = tier.lon;
-          }
-        } else {
-          adjLat = tier.lat;
-          adjLon = tier.lon;
-        }
+    if (model) {
+      const adj = adjustRow(model, row);
+      if (adj) {
+        adjLat = adj.lat;
+        adjLon = adj.lon;
       }
     }
     augmented.adj_lat = adjLat;

@@ -127,7 +127,9 @@ async function getWeatherForDate(date) {
       const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
       _memSet(date, parsed);
       return parsed;
-    } catch (_) { /* corrupt cache — fall through to network */ }
+    } catch (_) {
+      try { fs.unlinkSync(file); } catch (_2) {}
+    }
   }
 
   // 3. Network fetch.

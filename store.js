@@ -163,19 +163,31 @@ async function loadJsonlFile(file, onRow) {
   if (!fs.existsSync(file)) return 0;
   return await new Promise((resolve, reject) => {
     let count = 0;
+    let settled = false;
     const stream = fs.createReadStream(file, { encoding: "utf8" });
     const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
     rl.on("line", (line) => {
-      if (!line) return;
+      if (settled || !line) return;
+      let row;
       try {
-        onRow(normalizeRow(JSON.parse(line)));
-        count += 1;
+        row = normalizeRow(JSON.parse(line));
       } catch {
-        /* partial line */
+        return; /* partial line or invalid JSON — skip silently */
       }
+      try {
+        onRow(row);
+      } catch (err) {
+        // onRow threw — reject the promise so callers see a real error
+        // rather than a silent dropped row. Distinct from parse failures above.
+        settled = true;
+        rl.close();
+        reject(err);
+        return;
+      }
+      count += 1;
     });
-    rl.on("close", () => resolve(count));
-    rl.on("error", (err) => reject(err));
+    rl.on("close", () => { if (!settled) resolve(count); });
+    rl.on("error", (err) => { settled = true; reject(err); });
   });
 }
 

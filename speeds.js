@@ -225,16 +225,16 @@ function applyEkfFilter(busId, lat, lon, measuredSpeedKmh, dt) {
   const Sinv = mat2Inv(S);
   let K = matMul(matMul(PPred, Ht), Sinv);
 
-  let xUpd = vecAdd(xPred, matVec(K, y));
-  let PUpd = matMul(matSub(eye(4), matMul(K, H)), PPred);
-
   // Soften the gain when Mahalanobis distance is large (outlier-ish update).
+  // Must happen before computing xUpd and PUpd so both use the same final K.
   const yT_Sinv = matVec(Sinv, y); // 2-vec
   const mahalanobis = Math.sqrt(y[0] * yT_Sinv[0] + y[1] * yT_Sinv[1]);
   if (mahalanobis > config.EKF_MAHALANOBIS_THRESHOLD) {
     K = matScale(K, config.EKF_MAHALANOBIS_GAIN_SCALE);
-    xUpd = vecAdd(xPred, matVec(K, y));
   }
+
+  const xUpd = vecAdd(xPred, matVec(K, y));
+  const PUpd = matMul(matSub(eye(4), matMul(K, H)), PPred);
 
   // Velocity clamp.
   let vx = xUpd[2];

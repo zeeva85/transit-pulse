@@ -136,7 +136,7 @@
           const p = params[0];
           const t = new Date(p.value[0]);
           return (
-            `${t.toLocaleTimeString()}<br/>` +
+            `${t.toLocaleTimeString([], { timeZone: "Asia/Kuala_Lumpur" })}<br/>` +
             `<b>${p.value[1] != null ? p.value[1].toFixed(1) + " km/h" : "—"}</b>`
           );
         },
@@ -144,7 +144,16 @@
       grid: { left: 50, right: 20, top: 40, bottom: 30 },
       xAxis: {
         type: "time",
-        axisLabel: { color: "#a0a0a0", fontSize: 10 },
+        axisLabel: {
+          color: "#a0a0a0",
+          fontSize: 10,
+          formatter: (val) =>
+            new Date(val).toLocaleTimeString([], {
+              timeZone: "Asia/Kuala_Lumpur",
+              hour: "2-digit",
+              minute: "2-digit",
+            }),
+        },
         axisLine: { lineStyle: { color: "#2a2f3a" } },
       },
       yAxis: {

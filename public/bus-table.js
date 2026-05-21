@@ -124,7 +124,11 @@
 
     const query = searchInput ? searchInput.value.trim().toLowerCase() : "";
     const filtered = query
-      ? lastBuses.filter((b) => (b.route || "Unknown").toLowerCase().includes(query))
+      ? lastBuses.filter(
+          (b) =>
+            (b.route || "Unknown").toLowerCase().includes(query) ||
+            (b.bus_id || "").toLowerCase().includes(query)
+        )
       : lastBuses;
 
     if (searchCount) {

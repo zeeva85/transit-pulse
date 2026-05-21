@@ -50,6 +50,7 @@ const {
   promoteLearnedShapes,
   stats: learnedShapesStats,
 } = require("./learned-shapes");
+const { augmentJsonlFile } = require("./augment-jsonl");
 
 const PORT = process.env.PORT || 3000;
 
@@ -371,7 +372,7 @@ let feedFailureCount = 0;
 let feedSuccessCount = 0;
 let lastFeedError = null;
 let lastFeedFailureMs = 0;
-let lastFeedSuccessMs = 0;
+let lastFeedSuccessMs = Date.now();
 
 // Per-hour KL weather cache — fetched once per hour, shared across all
 // appendTick calls in that hour. Non-blocking: if Open-Meteo is down,
@@ -1114,7 +1115,6 @@ const {
   unknownAccumulatorFromRow,
   closeUnknownAccumulator,
 } = require("./maintenance-pass");
-const { augmentJsonlFile } = require("./augment-jsonl");
 const { convertDayToParquet } = require("./convert-day");
 
 let maintenanceInFlight = false;
