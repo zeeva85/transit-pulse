@@ -367,6 +367,11 @@ function recordPositionAndComputeSpeed(busId, lat, lon, tMs, speedRaw, nowMs, pr
 
 let feedCache = { ts: 0, buses: [] };
 let fetchInFlight = false;
+let feedFailureCount = 0;
+let feedSuccessCount = 0;
+let lastFeedError = null;
+let lastFeedFailureMs = 0;
+let lastFeedSuccessMs = 0;
 
 // Per-hour KL weather cache — fetched once per hour, shared across all
 // appendTick calls in that hour. Non-blocking: if Open-Meteo is down,
@@ -703,8 +708,17 @@ async function fetchFeed(cacheMs = FEED_CACHE_BASE_MS) {
   // trust_buffers, and day_history across bus absences within a single KL
   // day. They're cleared on midnight rollover only.
   feedCache = { ts: now, buses };
+  feedSuccessCount += 1;
+  lastFeedSuccessMs = now;
+  feedFailureCount = 0; // reset consecutive failure count on success
+  lastFeedError = null;
   return buses;
 
+  } catch (err) {
+    feedFailureCount += 1;
+    lastFeedError = err.message || String(err);
+    lastFeedFailureMs = Date.now();
+    throw err;
   } finally {
     fetchInFlight = false;
   }
@@ -925,14 +939,22 @@ app.get("/api/config", (_req, res) => {
 app.get("/api/health", (_req, res) => {
   let totalHistoryPoints = 0;
   for (const hist of positionHistory.values()) totalHistoryPoints += hist.length;
+  const nowMs = Date.now();
   res.json({
     ok: true,
     routes: Object.keys(gtfs.routeById).length,
     shapes: Object.keys(gtfs.shapesById).length,
     cached_buses: feedCache.buses.length,
-    cache_age_ms: Date.now() - feedCache.ts,
+    cache_age_ms: nowMs - feedCache.ts,
     tracked_buses: positionHistory.size,
     total_history_points: totalHistoryPoints,
+    feed_ok: feedFailureCount === 0,
+    feed_failure_count: feedFailureCount,
+    feed_success_count: feedSuccessCount,
+    last_feed_error: lastFeedError,
+    last_feed_failure_ms: lastFeedFailureMs || null,
+    last_feed_success_ms: lastFeedSuccessMs || null,
+    feed_down_for_ms: feedFailureCount > 0 && lastFeedFailureMs ? nowMs - lastFeedSuccessMs : 0,
     ...speedStateStats(),
     heatmap: accumulatorStats(),
     store: storeStats(),
