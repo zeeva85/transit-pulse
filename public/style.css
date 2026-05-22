@@ -916,6 +916,37 @@ body.light-mode #map-loading { background: rgba(255,255,255,0.6); }
 body.light-mode .map-loading-inner { background: rgba(255,255,255,0.95); border-color: #d0d7de; color: #24292f; }
 body.light-mode .map-loading-spinner { border-color: #d0d7de; border-top-color: #0969da; }
 
+/* Disclaimer banner — shown once on first visit */
+#disclaimer-banner {
+  grid-area: main;
+  align-self: start;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 20px;
+  font-size: 12px;
+  background: #1c2128;
+  color: #e6e6e6;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  z-index: 100;
+}
+#disclaimer-banner button {
+  background: none;
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 4px;
+  color: #e6e6e6;
+  cursor: pointer;
+  padding: 3px 10px;
+  font-size: 11px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+#disclaimer-banner button:hover { border-color: #79b8ff; color: #79b8ff; }
+body.light-mode #disclaimer-banner { background: #ffffff; color: #111827; border-bottom-color: #e5e7eb; }
+body.light-mode #disclaimer-banner button { border-color: #d1d5db; color: #111827; }
+body.light-mode #disclaimer-banner button:hover { border-color: #2563eb; color: #2563eb; }
+
 /* Rollover overlay — full-page freeze while midnight pipeline runs */
 #rollover-overlay {
   position: fixed;
