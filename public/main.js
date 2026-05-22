@@ -2535,7 +2535,7 @@ function bindNewSidebarControls() {
       }
       function buildGeoLabel(originName, destName, suffix) {
         const span = document.createElement("span");
-        span.style.opacity = "0.7";
+        span.style.cssText = "opacity:0.7;white-space:pre-line";
         span.textContent = `From: ${originName}\nTo: ${destName}`;
         const br = document.createElement("br");
         resultDiv.replaceChildren(span, br, document.createTextNode(suffix));
@@ -2553,7 +2553,7 @@ function bindNewSidebarControls() {
         }
         const p = data.properties;
         const geoSpan = document.createElement("span");
-        geoSpan.style.opacity = "0.7";
+        geoSpan.style.cssText = "opacity:0.7;white-space:pre-line";
         geoSpan.textContent = `From: ${originGeo.displayName}\nTo: ${destGeo.displayName}`;
         const statsSpan = document.createElement("span");
         statsSpan.style.opacity = "0.7";
