@@ -2533,8 +2533,14 @@ function bindNewSidebarControls() {
         findBtn.disabled = false;
         return;
       }
-      resultDiv.innerHTML =
-        `<span style="opacity:0.7">From: ${originGeo.displayName}<br>To: ${destGeo.displayName}</span><br>Routing…`;
+      function buildGeoLabel(originName, destName, suffix) {
+        const span = document.createElement("span");
+        span.style.opacity = "0.7";
+        span.textContent = `From: ${originName}\nTo: ${destName}`;
+        const br = document.createElement("br");
+        resultDiv.replaceChildren(span, br, document.createTextNode(suffix));
+      }
+      buildGeoLabel(originGeo.displayName, destGeo.displayName, "Routing…");
       try {
         const from = `${originGeo.lat},${originGeo.lon}`;
         const to   = `${destGeo.lat},${destGeo.lon}`;
@@ -2546,11 +2552,24 @@ function bindNewSidebarControls() {
           return;
         }
         const p = data.properties;
-        resultDiv.innerHTML =
-          `<span style="opacity:0.7">From: ${originGeo.displayName}<br>To: ${destGeo.displayName}</span><br>` +
-          `📍 <strong>${p.distance_km} km</strong> · ` +
-          `🕒 <strong>~${p.duration_min} min</strong><br>` +
-          `<span style="opacity:0.7">${p.congestion_obs} bus observations used as congestion signal</span>`;
+        const geoSpan = document.createElement("span");
+        geoSpan.style.opacity = "0.7";
+        geoSpan.textContent = `From: ${originGeo.displayName}\nTo: ${destGeo.displayName}`;
+        const statsSpan = document.createElement("span");
+        statsSpan.style.opacity = "0.7";
+        statsSpan.textContent = `${p.congestion_obs} bus observations used as congestion signal`;
+        const distStrong = document.createElement("strong");
+        distStrong.textContent = `${p.distance_km} km`;
+        const durStrong = document.createElement("strong");
+        durStrong.textContent = `~${p.duration_min} min`;
+        resultDiv.replaceChildren(
+          geoSpan,
+          document.createElement("br"),
+          document.createTextNode("📍 "), distStrong,
+          document.createTextNode(" · 🕒 "), durStrong,
+          document.createElement("br"),
+          statsSpan
+        );
         drawRoute(data);
       } catch (err) {
         resultDiv.textContent = "Network error — is the server running?";

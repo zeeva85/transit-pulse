@@ -68,3 +68,7 @@ temp/
 CLAUDE.md
 CLAUDE.local.md
 .claude/
+
+# Internal audit docs (local only)
+SECURITY.md
+PRIVACY.md

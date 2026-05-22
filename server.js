@@ -6,6 +6,9 @@
 require("dotenv").config();
 const config  = require("./config");
 const express = require("express");
+const helmet  = require("helmet");
+const rateLimit = require("express-rate-limit");
+const { timingSafeEqual } = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const { execSync } = require("child_process");
@@ -88,6 +91,32 @@ const MAX_HISTORY = config.MAX_POSITION_HISTORY;
 // matching Python `busapp/state.py:day_rollover`.
 
 const app = express();
+app.disable("x-powered-by");
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: [
+        "'self'",
+        "https://unpkg.com",
+        "https://cdn.jsdelivr.net",
+        "'unsafe-eval'", // deck.gl requires eval
+      ],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://unpkg.com", "https://cdn.jsdelivr.net"],
+      imgSrc: ["'self'", "data:", "blob:", "https://*.maptiler.com", "https://*.openstreetmap.org"],
+      connectSrc: [
+        "'self'",
+        "https://api.maptiler.com",
+        "https://nominatim.openstreetmap.org",
+        "https://tiles.openstreetmap.org",
+      ],
+      fontSrc: ["'self'", "https://fonts.gstatic.com"],
+      workerSrc: ["blob:"],
+      frameSrc: ["'none'"],
+    },
+  },
+  hsts: { maxAge: 15552000, includeSubDomains: true },
+}));
 
 // Serve index.html with ?v=<git-sha> appended to all local CSS/JS URLs.
 // index.html itself is never cached so the new version string reaches the
@@ -104,9 +133,16 @@ app.get(["/", "/index.html"], (_req, res) => {
   res.send(html);
 });
 
+app.get("/privacy", (_req, res) => {
+  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.sendFile(path.join(__dirname, "public", "privacy.html"));
+});
+
 // CSS/JS assets: cache forever — safe because index.html now references them
 // with ?v=<git-sha>, so a new deploy produces a new URL = automatic cache bust.
 app.use(express.static(path.join(__dirname, "public"), {
+  dotfiles: "deny",
   setHeaders(res, filePath) {
     if (filePath.endsWith(".css") || filePath.endsWith(".js")) {
       res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
@@ -835,7 +871,7 @@ app.get("/api/buses", async (req, res) => {
       });
     } catch (err) {
       console.error("[api/buses historical]", err);
-      return res.status(500).json({ error: String(err) });
+      return res.status(500).json({ error: "Internal server error" });
     }
   }
 
@@ -858,7 +894,7 @@ app.get("/api/buses", async (req, res) => {
     });
   } catch (err) {
     console.error("[api/buses]", err);
-    res.status(502).json({ error: String(err) });
+    res.status(502).json({ error: "Internal server error" });
   }
 });
 
@@ -952,7 +988,6 @@ app.get("/api/health", (_req, res) => {
     feed_ok: feedFailureCount === 0,
     feed_failure_count: feedFailureCount,
     feed_success_count: feedSuccessCount,
-    last_feed_error: lastFeedError,
     last_feed_failure_ms: lastFeedFailureMs || null,
     last_feed_success_ms: lastFeedSuccessMs || null,
     feed_down_for_ms: feedFailureCount > 0 && lastFeedFailureMs ? nowMs - lastFeedSuccessMs : 0,
@@ -1038,7 +1073,7 @@ app.get("/api/heatmap", async (req, res) => {
     res.json(body);
   } catch (err) {
     console.error("[api/heatmap]", err);
-    res.status(500).json({ error: String(err) });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -1049,7 +1084,10 @@ app.get("/api/weather", async (req, res) => {
   try {
     const now8 = new Date(Date.now() + 8 * 3600 * 1000);
     const today = now8.toISOString().slice(0, 10);
-    const date = (!req.query.date || req.query.date === "today") ? today : req.query.date;
+    const rawDate = req.query.date;
+    if (rawDate && rawDate !== "today" && !/^\d{4}-\d{2}-\d{2}$/.test(rawDate))
+      return res.status(400).json({ error: "date must be YYYY-MM-DD" });
+    const date = (!rawDate || rawDate === "today") ? today : rawDate;
     const hourly = await getWeatherForDate(date);
     // Annotate each hour with a human label and rainy flag for the frontend.
     const hours = {};
@@ -1059,7 +1097,7 @@ app.get("/api/weather", async (req, res) => {
     res.json({ date, hours });
   } catch (err) {
     console.error("[api/weather]", err);
-    res.status(500).json({ error: String(err) });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -1070,6 +1108,8 @@ app.get("/api/weather/range", async (req, res) => {
   try {
     const { start, end } = req.query;
     if (!start || !end) return res.status(400).json({ error: "start and end required" });
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end))
+      return res.status(400).json({ error: "start and end must be YYYY-MM-DD" });
     // Build date list.
     const dates = [];
     let cur = new Date(start + "T00:00:00Z");
@@ -1091,7 +1131,7 @@ app.get("/api/weather/range", async (req, res) => {
     res.json({ dates: result });
   } catch (err) {
     console.error("[api/weather/range]", err);
-    res.status(500).json({ error: String(err) });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -1100,7 +1140,7 @@ app.get("/api/pooled-anchors", async (_req, res) => {
     res.json(await computePooledMedians());
   } catch (err) {
     console.error("[api/pooled-anchors]", err);
-    res.status(500).json({ error: String(err) });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -1118,7 +1158,7 @@ const {
 const { convertDayToParquet } = require("./convert-day");
 
 let maintenanceInFlight = false;
-app.post("/api/maintenance/run", express.json(), async (_req, res) => {
+app.post("/api/maintenance/run", requireAdmin, express.json({ limit: "16kb" }), async (_req, res) => {
   if (maintenanceInFlight) {
     return res.status(409).json({ error: "maintenance already running" });
   }
@@ -1253,7 +1293,7 @@ app.post("/api/maintenance/run", express.json(), async (_req, res) => {
     });
   } catch (err) {
     console.error("[api/maintenance/run]", err);
-    res.status(500).json({ error: String(err) });
+    res.status(500).json({ error: "Internal server error" });
   } finally {
     maintenanceInFlight = false;
   }
@@ -1274,7 +1314,7 @@ app.get("/api/dates", (_req, res) => {
 // .jsonl for today's live file. Used by the sync-data script to pull
 // accumulated data from any running instance (production → local, or
 // old host → new host at migration time).
-app.get("/api/data/:date", (req, res) => {
+app.get("/api/data/:date", requireAdmin, (req, res) => {
   const date = req.params.date;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     return res.status(400).json({ error: "date must be YYYY-MM-DD" });
@@ -1328,17 +1368,42 @@ function pruneAdminSessions() {
   for (const [tok, exp] of adminSessions) if (exp < now) adminSessions.delete(tok);
 }
 
-app.post("/api/admin/login", express.json(), (req, res) => {
-  const password = process.env.ADMIN_PASSWORD;
-  if (!password) return res.status(503).json({ ok: false, error: "Admin not configured" });
-  if (!req.body || req.body.password !== password)
+function requireAdmin(req, res, next) {
+  const cookies = parseCookies(req.headers.cookie);
+  const token   = cookies.adminToken;
+  pruneAdminSessions();
+  const exp = token && adminSessions.get(token);
+  if (exp && exp > Date.now()) return next();
+  res.status(401).json({ ok: false, error: "Unauthorized" });
+}
+
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { ok: false, error: "Too many login attempts — try again in 15 minutes" },
+});
+
+app.post("/api/admin/login", loginLimiter, express.json({ limit: "16kb" }), (req, res) => {
+  const configured = process.env.ADMIN_PASSWORD;
+  if (!configured) return res.status(503).json({ ok: false, error: "Admin not configured" });
+  const supplied = req.body && typeof req.body.password === "string" ? req.body.password : "";
+  const configuredBuf = Buffer.from(configured);
+  const suppliedBuf   = Buffer.from(supplied);
+  // Constant-length compare to prevent timing oracle — pad to same length first.
+  const maxLen = Math.max(configuredBuf.length, suppliedBuf.length);
+  const a = Buffer.alloc(maxLen, 0); configuredBuf.copy(a);
+  const b = Buffer.alloc(maxLen, 0); suppliedBuf.copy(b);
+  if (!timingSafeEqual(a, b) || configured.length !== supplied.length)
     return res.status(401).json({ ok: false, error: "Wrong password" });
 
   pruneAdminSessions();
   const token = randomBytes(32).toString("hex");
   adminSessions.set(token, Date.now() + SESSION_TTL_MS);
+  const isSecure = process.env.NODE_ENV === "production";
   res.setHeader("Set-Cookie",
-    `adminToken=${token}; HttpOnly; Max-Age=${config.ADMIN_SESSION_TTL_MS / 1000}; SameSite=Strict; Path=/`);
+    `adminToken=${token}; HttpOnly; Max-Age=${config.ADMIN_SESSION_TTL_MS / 1000}; SameSite=Strict; Path=/${isSecure ? "; Secure" : ""}`);
   res.json({ ok: true, expiresIn: SESSION_TTL_MS });
 });
 
@@ -1390,7 +1455,7 @@ app.get("/api/route", (req, res) => {
   res.json(result);
 });
 
-app.post("/api/correction-method", express.json(), (req, res) => {
+app.post("/api/correction-method", requireAdmin, express.json({ limit: "16kb" }), (req, res) => {
   const method = req.body && req.body.method;
   if (!CORRECTION_METHODS.includes(method)) {
     return res.status(400).json({
@@ -1421,7 +1486,7 @@ app.get("/api/clusters", async (req, res) => {
     res.json(routeRes);
   } catch (err) {
     console.error("[api/clusters]", err);
-    res.status(500).json({ error: String(err) });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
