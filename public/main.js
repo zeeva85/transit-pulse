@@ -1485,6 +1485,20 @@ document.getElementById("sidebar-timeline-close").addEventListener("click", clea
   });
 })();
 
+// ── Disclaimer banner (shown once, dismissed via localStorage) ────────────
+(function () {
+  const banner  = document.getElementById("disclaimer-banner");
+  const dismiss = document.getElementById("dismiss-disclaimer");
+  if (!banner || !dismiss) return;
+  if (!localStorage.getItem("busjs-disclaimer-dismissed")) {
+    banner.style.display = "flex";
+  }
+  dismiss.addEventListener("click", () => {
+    banner.style.display = "none";
+    localStorage.setItem("busjs-disclaimer-dismissed", "1");
+  });
+})();
+
 // ──────────────────────────────────────────────────────────────────────────
 // Polling loop
 // ──────────────────────────────────────────────────────────────────────────
