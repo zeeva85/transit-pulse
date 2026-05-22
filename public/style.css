@@ -6,11 +6,12 @@ body {
   color: #e6e6e6;
   background: #0e1117;
   display: grid;
-  grid-template-rows: 70px 1fr;
+  grid-template-rows: 70px 1fr auto;
   grid-template-columns: 280px 1fr;
   grid-template-areas:
     "header  header"
-    "sidebar main";
+    "sidebar main"
+    "footer  footer";
   min-height: 100vh;
 }
 
