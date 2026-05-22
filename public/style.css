@@ -925,7 +925,7 @@ body.light-mode .map-loading-spinner { border-color: #d0d7de; border-top-color: 
   justify-content: space-between;
   gap: 12px;
   padding: 10px 20px;
-  font-size: 12px;
+  font-size: 16px;
   background: #1c2128;
   color: #e6e6e6;
   border-bottom: 1px solid rgba(255,255,255,0.08);
