@@ -1176,8 +1176,8 @@ body.light-mode #trip-origin:focus, body.light-mode #trip-destination:focus {
   /* ── Body grid: single column ── */
   body {
     grid-template-columns: 1fr;
-    grid-template-rows: 70px 1fr;
-    grid-template-areas: "header" "main";
+    grid-template-rows: 70px 1fr auto;
+    grid-template-areas: "header" "main" "footer";
   }
 
   /* ── Header ── */
