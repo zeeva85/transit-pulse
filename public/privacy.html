@@ -105,31 +105,8 @@
     a:hover { text-decoration: underline; }
     body.light-mode a { color: #2563eb; }
 
-    .privacy-table {
-      width: 100%;
-      border-collapse: collapse;
-      margin: 16px 0 24px;
-      font-size: 13.5px;
-    }
-    .privacy-table th {
-      text-align: left;
-      padding: 8px 12px;
-      background: rgba(255,255,255,0.06);
-      color: #a0a8b4;
-      font-weight: 600;
-      border-bottom: 1px solid rgba(255,255,255,0.1);
-    }
-    .privacy-table td {
-      padding: 9px 12px;
-      border-bottom: 1px solid rgba(255,255,255,0.05);
-      color: #c9d1d9;
-      vertical-align: top;
-    }
-    .privacy-table tr:last-child td { border-bottom: none; }
-    body.light-mode .privacy-table th { background: #f3f4f6; color: #6b7280; border-bottom-color: #e5e7eb; }
-    body.light-mode .privacy-table td { color: #374151; border-bottom-color: #e5e7eb; }
 
-    .callout {
+.callout {
       background: rgba(45,186,78,0.1);
       border-left: 3px solid #2dba4e;
       border-radius: 0 6px 6px 0;
@@ -217,66 +194,14 @@
   </p>
 
   <h2>Third-party services</h2>
-  <p>
-    When you use this site, your browser or our server contacts the following services.
-    Whether <em>your</em> IP is shared depends on whether your browser or our server
-    makes the call.
-  </p>
-
-  <table class="privacy-table">
-    <thead>
-      <tr>
-        <th>Service</th>
-        <th>Who calls it</th>
-        <th>What they receive</th>
-        <th>Retention</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr>
-        <td><strong>MapTiler</strong><br><a href="https://www.maptiler.com/privacy-policy/" target="_blank" rel="noopener">Privacy policy</a></td>
-        <td>Your browser (map tiles load directly)</td>
-        <td>Your IP address, browser type, tile request URLs</td>
-        <td>Up to 2 months</td>
-      </tr>
-      <tr>
-        <td><strong>OpenStreetMap / Nominatim</strong><br><a href="https://osmfoundation.org/wiki/Privacy_Policy" target="_blank" rel="noopener">Privacy policy</a></td>
-        <td>Your browser (trip planner geocoding, fallback only)</td>
-        <td>Your IP address (anonymised to 2 bytes), browser type, OS, referrer</td>
-        <td>180 days</td>
-      </tr>
-      <tr>
-        <td><strong>Open-Meteo</strong><br><a href="https://open-meteo.com/en/terms" target="_blank" rel="noopener">Terms</a></td>
-        <td>Our server (weather data fetched server-side)</td>
-        <td>Our server's IP only — your IP is not shared</td>
-        <td>90 days (server IP logs only)</td>
-      </tr>
-      <tr>
-        <td><strong>data.gov.my</strong> (RapidKL GTFS)</td>
-        <td>Our server (bus feed fetched server-side)</td>
-        <td>Our server's IP only — your IP is not shared</td>
-        <td>Per Malaysian government policy</td>
-      </tr>
-      <tr>
-        <td><strong>Railway</strong><br><a href="https://railway.app/legal/privacy" target="_blank" rel="noopener">Privacy policy</a></td>
-        <td>All traffic passes through Railway (our host)</td>
-        <td>IP addresses, HTTP headers, request metadata as infrastructure processor</td>
-        <td>Per Railway's policy</td>
-      </tr>
-      <tr>
-        <td><strong>Cloudflare</strong><br><a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener">Privacy policy</a></td>
-        <td>All traffic passes through Cloudflare (CDN/DNS for our domain)</td>
-        <td>IP address, HTTP headers, request metadata for DDoS protection</td>
-        <td>Per Cloudflare's policy</td>
-      </tr>
-    </tbody>
-  </table>
-
-  <div class="note">
-    MapTiler and Nominatim receive requests directly from your browser — their privacy
-    policies apply to that data. Open-Meteo and data.gov.my are server-side only; your
-    IP is never forwarded to them.
-  </div>
+  <ul>
+    <li><strong><a href="https://www.maptiler.com/privacy-policy/" target="_blank" rel="noopener">MapTiler</a></strong> — map tiles load directly from your browser. They see your IP address.</li>
+    <li><strong><a href="https://osmfoundation.org/wiki/Privacy_Policy" target="_blank" rel="noopener">OpenStreetMap / Nominatim</a></strong> — used for trip planner geocoding (fallback). Requests go directly from your browser; IP is anonymised to 2 bytes.</li>
+    <li><strong><a href="https://open-meteo.com/en/terms" target="_blank" rel="noopener">Open-Meteo</a></strong> — weather data, fetched server-side. Your IP is not shared.</li>
+    <li><strong>data.gov.my</strong> — RapidKL bus feed, fetched server-side. Your IP is not shared.</li>
+    <li><strong><a href="https://railway.app/legal/privacy" target="_blank" rel="noopener">Railway</a></strong> — our hosting provider. All traffic passes through their infrastructure.</li>
+    <li><strong><a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener">Cloudflare</a></strong> — CDN and DNS for our domain. All traffic passes through their network for DDoS protection.</li>
+  </ul>
 
   <h2>Trip planner</h2>
   <p>
