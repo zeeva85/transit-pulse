@@ -183,34 +183,20 @@
 
 <main>
   <h1 class="page-title">Privacy Policy</h1>
-  <p class="page-meta">Last updated: 22 May 2026 &nbsp;·&nbsp; Operated by Seevasant Indran</p>
+  <p class="page-meta">Last updated: 22 May 2026</p>
 
   <div class="callout">
-    Short version: we don't have user accounts, emails, or payments. We do not advertise.
-    Third-party services (MapTiler for maps, Cloudflare for infrastructure) may collect
+    No user accounts, emails, or payments. No advertising or tracking cookies.
+    Third-party services (MapTiler for maps, Cloudflare for infrastructure) may see
     your IP address as part of normal operation — details below.
   </div>
 
-  <h2>What transit-pulse is</h2>
-  <p>
-    transit-pulse is a free, public transit visualization tool showing real-time and
-    historical bus positions for Rapid KL buses in Kuala Lumpur. Available at
-    <a href="https://buses.seevasantindran.com">buses.seevasantindran.com</a>.
-  </p>
-
   <h2>Data we collect directly</h2>
-  <p>We do not run accounts, registration, or payments. The data we handle directly:</p>
-  <ul>
-    <li>
-      <strong>Server logs</strong> — your IP address appears in standard server logs
-      when your browser makes requests to our server. These logs are used for security
-      and debugging and are deleted within 90 days. We do not share them.
-    </li>
-    <li>
-      <strong>Admin session cookie</strong> — set only after a successful admin login
-      (site operator only, not regular visitors). Expires after 15 minutes.
-    </li>
-  </ul>
+  <p>
+    <strong>Server logs</strong> — your IP address appears in standard server logs when
+    your browser makes requests to our server. Used for security and debugging, deleted
+    within 90 days, not shared.
+  </p>
 
   <h2>Cookies</h2>
   <p>
@@ -287,10 +273,9 @@
   </table>
 
   <div class="note">
-    MapTiler and OpenStreetMap/Nominatim receive requests directly from your browser
-    — they are independent data controllers and their privacy policies apply directly
-    to that data. Open-Meteo and data.gov.my are called server-side only; your IP is
-    never forwarded to them.
+    MapTiler and Nominatim receive requests directly from your browser — their privacy
+    policies apply to that data. Open-Meteo and data.gov.my are server-side only; your
+    IP is never forwarded to them.
   </div>
 
   <h2>Trip planner</h2>
@@ -313,29 +298,15 @@
     and <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>.
   </p>
 
-  <h2>Your rights</h2>
-  <p>
-    Under GDPR (EU/UK), PDPA 2010 (Malaysia), and similar laws, you may request access
-    to, correction of, or deletion of personal data we hold. In practice the only
-    personal data we hold directly is your IP address in server logs, which is deleted
-    within 90 days automatically. For third-party services listed above, you should
-    contact those services directly.
-  </p>
-  <p>
-    Privacy questions: <a href="mailto:privacy@seevasantindran.com">privacy@seevasantindran.com</a>
-  </p>
-
   <h2>Data retention</h2>
   <ul>
-    <li>Server logs (IP addresses): deleted within 90 days via log rotation</li>
+    <li>Server logs (IP addresses): deleted within 90 days</li>
     <li>Bus GPS data (public infrastructure data, not personal): retained for historical analysis</li>
     <li>Trip planner queries: not stored</li>
-    <li>Admin session tokens: expire after 15 minutes</li>
   </ul>
 
-  <h2>Changes</h2>
   <p>
-    Material changes will be noted at the top of this page with an updated date.
+    Questions: <a href="mailto:privacy@seevasantindran.com">privacy@seevasantindran.com</a>
   </p>
 </main>
 
@@ -345,24 +316,6 @@
   &copy; 2026 Seevasant Indran
 </footer>
 
-<script>
-  const toggle = document.getElementById('theme-toggle');
-  const sun    = document.getElementById('icon-sun');
-  const moon   = document.getElementById('icon-moon');
-
-  function applyTheme(light) {
-    document.body.classList.toggle('light-mode', light);
-    sun.style.display  = light ? 'none' : '';
-    moon.style.display = light ? ''     : 'none';
-  }
-
-  applyTheme(localStorage.getItem('theme') === 'light');
-
-  toggle.addEventListener('click', () => {
-    const nowLight = !document.body.classList.contains('light-mode');
-    localStorage.setItem('theme', nowLight ? 'light' : 'dark');
-    applyTheme(nowLight);
-  });
-</script>
+<script src="/theme-toggle.js"></script>
 </body>
 </html>
