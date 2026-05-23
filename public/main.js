@@ -2295,7 +2295,7 @@ function bindNewSidebarControls() {
     (w) => [
       `${w.humidity != null ? Math.round(w.humidity) : "--"}% humidity`,
       `UV ${w.uv != null ? w.uv : "--"}`,
-      `${w.aqi_index != null ? AQI_LABELS[w.aqi_index] || w.aqi_index : "--"}`,
+      `AQI: ${w.aqi_index != null ? AQI_LABELS[w.aqi_index] || w.aqi_index : "--"}`,
       `${w.chance_of_rain != null ? w.chance_of_rain : "--"}% rain`,
     ],
   ];
