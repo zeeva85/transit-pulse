@@ -2216,17 +2216,6 @@ function bindNewSidebarControls() {
   pop.hidden = true;
   document.body.appendChild(pop);
 
-  const WX_ICONS = {
-    0:"☀️",1:"🌤",2:"⛅",3:"☁️",45:"🌫",48:"🌫",
-    51:"🌦",53:"🌦",55:"🌧",61:"🌧",63:"🌧",65:"🌧",
-    71:"❄️",73:"❄️",75:"❄️",80:"🌦",81:"🌦",82:"🌧",
-    95:"⛈",96:"⛈",99:"⛈",
-  };
-  function wxIcon(code) {
-    if (code == null) return "";
-    return WX_ICONS[code] || (code < 50 ? "☁️" : code < 70 ? "🌧" : code < 80 ? "❄️" : "⛈");
-  }
-
   function renderHours(hours, dateStr) {
     const isToday = !dateStr || dateStr === "today";
     const klHour = isToday ? (((Date.now() + 8 * 3600_000) / 3600_000) | 0) % 24 : -1;
@@ -2237,10 +2226,10 @@ function bindNewSidebarControls() {
       html +=
         `<div class="wx-pop-row${h === klHour ? " wx-pop-current" : ""}">` +
         `<span class="wx-pop-hour">${String(h).padStart(2, "0")}:00</span>` +
-        `<span class="wx-pop-icon">${wxIcon(w.code)}</span>` +
-        `<span class="wx-pop-temp">${w.temp != null ? Math.round(w.temp) + "°" : "—"}</span>` +
-        `<span class="wx-pop-precip">💧${w.precip != null ? w.precip.toFixed(1) : "—"}</span>` +
-        `<span class="wx-pop-wind">🌬${w.wind != null ? Math.round(w.wind) : "—"}</span>` +
+        `<span class="wx-pop-cond">${w.label || ""}</span>` +
+        `<span class="wx-pop-temp">${w.temp != null ? Math.round(w.temp) + "°C" : "—"}</span>` +
+        `<span class="wx-pop-precip">${w.precip != null ? w.precip.toFixed(1) + " mm" : "—"}</span>` +
+        `<span class="wx-pop-wind">${w.wind != null ? Math.round(w.wind) + " km/h" : "—"}</span>` +
         `</div>`;
     }
     return html;
@@ -2300,14 +2289,14 @@ function bindNewSidebarControls() {
     (w) => [
       `${Math.round(w.temp)}°C`,
       w.label || "",
-      `💧 ${w.precip != null ? w.precip.toFixed(1) : "--"} mm`,
-      `🌬 ${w.wind != null ? Math.round(w.wind) : "--"} km/h`,
+      `${w.precip != null ? w.precip.toFixed(1) : "--"} mm`,
+      `${w.wind != null ? Math.round(w.wind) : "--"} km/h`,
     ],
     (w) => [
-      `💦 ${w.humidity != null ? Math.round(w.humidity) : "--"}%`,
+      `${w.humidity != null ? Math.round(w.humidity) : "--"}% humidity`,
       `UV ${w.uv != null ? w.uv : "--"}`,
-      `🌫 ${w.aqi_index != null ? AQI_LABELS[w.aqi_index] || w.aqi_index : "--"}`,
-      `🌧 ${w.chance_of_rain != null ? w.chance_of_rain : "--"}% rain`,
+      `${w.aqi_index != null ? AQI_LABELS[w.aqi_index] || w.aqi_index : "--"}`,
+      `${w.chance_of_rain != null ? w.chance_of_rain : "--"}% rain`,
     ],
   ];
 
