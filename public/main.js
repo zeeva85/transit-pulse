@@ -2293,7 +2293,7 @@ function bindNewSidebarControls() {
       `${w.wind != null ? Math.round(w.wind) : "--"} km/h`,
     ],
     (w) => [
-      `${w.humidity != null ? Math.round(w.humidity) : "--"}% humidity`,
+      `${w.humidity != null ? Math.round(w.humidity) : "--"}% RH`,
       `UV ${w.uv != null ? w.uv : "--"}`,
       `PM2.5: ${w.aqi_pm25 != null ? Math.round(w.aqi_pm25) + " µg/m³" : "--"}`,
       `${w.chance_of_rain != null ? w.chance_of_rain : "--"}% rain`,
