@@ -1,6 +1,8 @@
-// weather.js — Open-Meteo integration for KL hourly weather data.
+// weather.js — WeatherAPI.com integration for KL hourly weather data.
 //
-// Fetches temperature, precipitation, windspeed, and weathercode for
+// Requires WEATHERAPI_KEY environment variable.
+//
+// Fetches temperature, precipitation, windspeed, and condition code for
 // Kuala Lumpur. Results are cached to data/weather-<YYYY-MM-DD>.json
 // so repeated calls (heatmap renders, correlation queries) hit disk
 // instead of the network.
@@ -15,7 +17,7 @@
 //   temp   — °C
 //   precip — mm (last hour)
 //   wind   — km/h
-//   code   — WMO weather interpretation code
+//   code   — WeatherAPI condition code (1000=Clear, 1183=Light rain, etc.)
 
 const fetch = require("node-fetch");
 const fs    = require("fs");
@@ -23,21 +25,15 @@ const path  = require("path");
 const config = require("./config");
 
 const DATA_DIR = path.join(__dirname, "data");
-
-// Open-Meteo archive endpoint (historical, no API key needed).
-// For the current day we fall back to the forecast endpoint.
-// For the current hour we additionally fetch the `current` endpoint which
-// returns near-real-time conditions (no model lag) and override the slot.
-const ARCHIVE_URL  = "https://archive-api.open-meteo.com/v1/archive";
-const FORECAST_URL = "https://api.open-meteo.com/v1/forecast";
-const VARIABLES    = "temperature_2m,precipitation,windspeed_10m,weathercode";
+const API_KEY  = process.env.WEATHERAPI_KEY || "";
+const BASE_URL = "https://api.weatherapi.com/v1";
 
 // KL coordinates — matches config.KL_CENTER exactly.
 const LAT = config.KL_CENTER.lat;
 const LON = config.KL_CENTER.lon;
+const Q   = `${LAT},${LON}`;
 
 // In-memory LRU cache (capped at WEATHER_CACHE_LIMIT dates).
-// Avoids re-reading disk on rapid sequential renders.
 const memCache = new Map();
 
 function cacheFile(date) {
@@ -50,61 +46,64 @@ function klDateToday() {
   return now.toISOString().slice(0, 10);
 }
 
-// Parse the Open-Meteo hourly arrays into { [hour]: { temp, precip, wind, code } }.
-function parseResponse(data) {
-  const h = data.hourly;
-  if (!h || !h.time) return {};
+// Parse WeatherAPI hourly array into { [hour]: { temp, precip, wind, code } }.
+// Each element: { time: "YYYY-MM-DD HH:MM", temp_c, precip_mm, wind_kph, condition: { code } }
+function parseHourly(hours) {
   const result = {};
-  h.time.forEach((t, i) => {
-    // time strings are "YYYY-MM-DDTHH:00" in the requested timezone.
-    const hour = parseInt(t.slice(11, 13), 10);
+  for (const h of hours) {
+    const hour = parseInt(h.time.slice(11, 13), 10);
     result[hour] = {
-      temp:   h.temperature_2m   ? h.temperature_2m[i]   : null,
-      precip: h.precipitation    ? h.precipitation[i]    : null,
-      wind:   h.windspeed_10m    ? h.windspeed_10m[i]    : null,
-      code:   h.weathercode      ? h.weathercode[i]      : null,
+      temp:   h.temp_c          ?? null,
+      precip: h.precip_mm       ?? null,
+      wind:   h.wind_kph        ?? null,
+      code:   h.condition?.code ?? null,
     };
-  });
+  }
   return result;
 }
 
 async function fetchFromNetwork(date) {
-  const today = klDateToday();
-  // Archive API covers up to yesterday; today's data uses forecast endpoint.
+  if (!API_KEY) throw new Error("WEATHERAPI_KEY not set");
+  const today   = klDateToday();
   const isToday = date === today;
-  const base = isToday ? FORECAST_URL : ARCHIVE_URL;
-  const url = `${base}?latitude=${LAT}&longitude=${LON}` +
-              `&start_date=${date}&end_date=${date}` +
-              `&hourly=${VARIABLES}` +
-              `&timezone=Asia%2FKuala_Lumpur`;
 
-  const res = await fetch(url, { timeout: 15_000 });
-  if (!res.ok) throw new Error(`Open-Meteo ${res.status} for ${date}`);
-  const json = await res.json();
-  const hourly = parseResponse(json);
+  let hourly;
 
-  // For today, override the current hour with real-time `current` conditions.
-  // The hourly forecast has model lag; the `current` endpoint is near-realtime.
   if (isToday) {
+    // Forecast endpoint covers today's full hourly breakdown.
+    const url = `${BASE_URL}/forecast.json?key=${API_KEY}&q=${Q}&days=1&aqi=no&alerts=no`;
+    const res = await fetch(url, { timeout: 15_000 });
+    if (!res.ok) throw new Error(`WeatherAPI forecast ${res.status} for ${date}`);
+    const json = await res.json();
+    const hours = json.forecast?.forecastday?.[0]?.hour ?? [];
+    hourly = parseHourly(hours);
+
+    // Override current hour with real-time reading — no model lag.
     try {
-      const curUrl = `${FORECAST_URL}?latitude=${LAT}&longitude=${LON}` +
-                     `&current=${VARIABLES}` +
-                     `&timezone=Asia%2FKuala_Lumpur`;
+      const curUrl = `${BASE_URL}/current.json?key=${API_KEY}&q=${Q}&aqi=no`;
       const curRes = await fetch(curUrl, { timeout: 15_000 });
       if (curRes.ok) {
-        const curJson = await curRes.json();
-        const c = curJson.current;
-        if (c && c.time) {
-          const hour = parseInt(c.time.slice(11, 13), 10);
+        const cur = await curRes.json();
+        const c   = cur.current;
+        if (c && cur.location?.localtime) {
+          const hour = parseInt(cur.location.localtime.slice(11, 13), 10);
           hourly[hour] = {
-            temp:   c.temperature_2m ?? null,
-            precip: c.precipitation  ?? null,
-            wind:   c.windspeed_10m  ?? null,
-            code:   c.weathercode    ?? null,
+            temp:   c.temp_c          ?? null,
+            precip: c.precip_mm       ?? null,
+            wind:   c.wind_kph        ?? null,
+            code:   c.condition?.code ?? null,
           };
         }
       }
-    } catch (_) { /* current fetch failed — hourly forecast stands */ }
+    } catch (_) { /* current fetch failed — forecast stands */ }
+  } else {
+    // History endpoint for past dates.
+    const url = `${BASE_URL}/history.json?key=${API_KEY}&q=${Q}&dt=${date}&aqi=no`;
+    const res = await fetch(url, { timeout: 15_000 });
+    if (!res.ok) throw new Error(`WeatherAPI history ${res.status} for ${date}`);
+    const json = await res.json();
+    const hours = json.forecast?.forecastday?.[0]?.hour ?? [];
+    hourly = parseHourly(hours);
   }
 
   return hourly;
@@ -112,8 +111,7 @@ async function fetchFromNetwork(date) {
 
 // Main entry point — returns HourlyWeather for a single date string "YYYY-MM-DD".
 // Reads from mem cache → disk cache → network, in that order.
-// Today's date skips both caches so the caller always gets a fresh fetch
-// (server.js:getCurrentWeather throttles to once per hour via weatherHourCache).
+// Today's date skips both caches (server.js:getCurrentWeather throttles via weatherHourCache).
 async function getWeatherForDate(date) {
   const today = klDateToday();
 
@@ -149,12 +147,11 @@ async function getWeatherForDates(dates) {
   const results = new Map();
   await Promise.all(dates.map(async (d) => {
     try { results.set(d, await getWeatherForDate(d)); }
-    catch (e) { results.set(d, {}); } // graceful degradation per date
+    catch (e) { results.set(d, {}); }
   }));
   return results;
 }
 
-// Evict oldest entry when mem cache grows beyond limit.
 function _memSet(date, data) {
   if (memCache.size >= config.WEATHER_CACHE_LIMIT) {
     const oldest = memCache.keys().next().value;
@@ -163,33 +160,79 @@ function _memSet(date, data) {
   memCache.set(date, data);
 }
 
-// WMO weather interpretation code → human label.
-// Source: https://open-meteo.com/en/docs (WMO Weather Code table).
-const WMO_LABELS = {
-  0:  "Clear sky",
-  1:  "Mainly clear", 2: "Partly cloudy", 3: "Overcast",
-  45: "Fog", 48: "Icy fog",
-  51: "Light drizzle", 53: "Drizzle", 55: "Heavy drizzle",
-  61: "Light rain", 63: "Rain", 65: "Heavy rain",
-  71: "Light snow", 73: "Snow", 75: "Heavy snow",
-  77: "Snow grains",
-  80: "Light showers", 81: "Showers", 82: "Heavy showers",
-  85: "Snow showers", 86: "Heavy snow showers",
-  95: "Thunderstorm",
-  96: "Thunderstorm + hail", 99: "Thunderstorm + heavy hail",
+// WeatherAPI condition code → human label.
+const CONDITION_LABELS = {
+  1000: "Clear",
+  1003: "Partly cloudy",
+  1006: "Cloudy",
+  1009: "Overcast",
+  1030: "Mist",
+  1063: "Patchy rain",
+  1066: "Patchy snow",
+  1069: "Patchy sleet",
+  1072: "Patchy freezing drizzle",
+  1087: "Thundery outbreaks",
+  1114: "Blowing snow",
+  1117: "Blizzard",
+  1135: "Fog",
+  1147: "Freezing fog",
+  1150: "Light drizzle",
+  1153: "Light drizzle",
+  1168: "Freezing drizzle",
+  1171: "Heavy freezing drizzle",
+  1180: "Light rain",
+  1183: "Light rain",
+  1186: "Moderate rain",
+  1189: "Moderate rain",
+  1192: "Heavy rain",
+  1195: "Heavy rain",
+  1198: "Light freezing rain",
+  1201: "Freezing rain",
+  1204: "Light sleet",
+  1207: "Sleet",
+  1210: "Light snow",
+  1213: "Light snow",
+  1216: "Moderate snow",
+  1219: "Moderate snow",
+  1222: "Heavy snow",
+  1225: "Heavy snow",
+  1237: "Ice pellets",
+  1240: "Light showers",
+  1243: "Showers",
+  1246: "Torrential rain",
+  1249: "Light sleet showers",
+  1252: "Sleet showers",
+  1255: "Light snow showers",
+  1258: "Snow showers",
+  1261: "Ice pellet showers",
+  1264: "Ice pellet showers",
+  1273: "Thunderstorm",
+  1276: "Thunderstorm",
+  1279: "Snow thunderstorm",
+  1282: "Snow thunderstorm",
 };
+
+// Condition codes that indicate rain/precipitation — used by isRainy() as a
+// fallback when precip_mm is zero but conditions are wet (drizzle, sleet, storms).
+const RAINY_CODES = new Set([
+  1063, 1069, 1072, 1087,
+  1150, 1153, 1168, 1171,
+  1180, 1183, 1186, 1189, 1192, 1195, 1198, 1201,
+  1204, 1207,
+  1240, 1243, 1246, 1249, 1252,
+  1273, 1276,
+]);
 
 function weatherCodeLabel(code) {
   if (code == null) return "Unknown";
-  return WMO_LABELS[code] || `Code ${code}`;
+  return CONDITION_LABELS[code] || `Code ${code}`;
 }
 
-// Convenience — true when precipitation > 0 or code indicates rain/storm.
+// True when precipitation > 0 mm or the condition code indicates wet weather.
 function isRainy(hourData) {
   if (!hourData) return false;
   if (hourData.precip > 0) return true;
-  const c = hourData.code;
-  return c != null && (c >= 51 && c <= 99);
+  return hourData.code != null && RAINY_CODES.has(hourData.code);
 }
 
 module.exports = { getWeatherForDate, getWeatherForDates, weatherCodeLabel, isRainy };

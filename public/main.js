@@ -2291,7 +2291,7 @@ function bindNewSidebarControls() {
   if (!meta || !art || !weatherEl) return;
 
   // Populate weather widget — shared by both paths. Refreshes every 5 min so
-  // the displayed conditions track Open-Meteo's real-time current reading.
+  // the displayed conditions track WeatherAPI's real-time current reading.
   function refreshWeatherWidget() {
     fetch("/api/weather?date=today")
       .then(r => r.json())

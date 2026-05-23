@@ -414,11 +414,11 @@ let lastFeedFailureMs = 0;
 let lastFeedSuccessMs = Date.now();
 
 // Per-hour KL weather cache — fetched once per hour, shared across all
-// appendTick calls in that hour. Non-blocking: if Open-Meteo is down,
+// appendTick calls in that hour. Non-blocking: if WeatherAPI is down,
 // weather fields write null and the bus pipeline is unaffected.
-// Cache weather per (date, hour) with a 10-minute TTL so mid-hour Open-Meteo
-// model corrections (e.g. forecast said drizzle, model updates to sunny 20 min
-// later) are reflected in JSONL rows within ~10 min, not at the next hour tick.
+// Cache weather per (date, hour) with a 10-minute TTL so mid-hour WeatherAPI
+// current readings (real-time, no model lag) are reflected in JSONL rows
+// within ~10 min, not at the next hour tick.
 const WEATHER_CACHE_TTL_MS = 10 * 60 * 1000;
 let weatherHourCache = { date: null, hour: null, data: null, fetchedAt: 0 };
 
