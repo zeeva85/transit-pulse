@@ -61,6 +61,7 @@ function parseHourly(hours) {
       uv:             h.uv                              ?? null,
       chance_of_rain: h.chance_of_rain                  ?? null,
       aqi_index:      h.air_quality?.["us-epa-index"]   ?? null,
+      aqi_pm25:       h.air_quality?.pm2_5             ?? null,
     };
   }
   return result;
@@ -100,6 +101,7 @@ async function fetchFromNetwork(date) {
             uv:             c.uv                            ?? null,
             chance_of_rain: hourly[hour]?.chance_of_rain    ?? null,
             aqi_index:      c.air_quality?.["us-epa-index"] ?? null,
+            aqi_pm25:       c.air_quality?.pm2_5            ?? null,
           };
         }
       }
