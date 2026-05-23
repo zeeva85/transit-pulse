@@ -53,10 +53,14 @@ function parseHourly(hours) {
   for (const h of hours) {
     const hour = parseInt(h.time.slice(11, 13), 10);
     result[hour] = {
-      temp:   h.temp_c          ?? null,
-      precip: h.precip_mm       ?? null,
-      wind:   h.wind_kph        ?? null,
-      code:   h.condition?.code ?? null,
+      temp:           h.temp_c                          ?? null,
+      precip:         h.precip_mm                       ?? null,
+      wind:           h.wind_kph                        ?? null,
+      code:           h.condition?.code                 ?? null,
+      humidity:       h.humidity                        ?? null,
+      uv:             h.uv                              ?? null,
+      chance_of_rain: h.chance_of_rain                  ?? null,
+      aqi_index:      h.air_quality?.["us-epa-index"]   ?? null,
     };
   }
   return result;
@@ -71,7 +75,7 @@ async function fetchFromNetwork(date) {
 
   if (isToday) {
     // Forecast endpoint covers today's full hourly breakdown.
-    const url = `${BASE_URL}/forecast.json?key=${API_KEY}&q=${Q}&days=1&aqi=no&alerts=no`;
+    const url = `${BASE_URL}/forecast.json?key=${API_KEY}&q=${Q}&days=1&aqi=yes&alerts=no`;
     const res = await fetch(url, { timeout: 15_000 });
     if (!res.ok) throw new Error(`WeatherAPI forecast ${res.status} for ${date}`);
     const json = await res.json();
@@ -80,7 +84,7 @@ async function fetchFromNetwork(date) {
 
     // Override current hour with real-time reading — no model lag.
     try {
-      const curUrl = `${BASE_URL}/current.json?key=${API_KEY}&q=${Q}&aqi=no`;
+      const curUrl = `${BASE_URL}/current.json?key=${API_KEY}&q=${Q}&aqi=yes`;
       const curRes = await fetch(curUrl, { timeout: 15_000 });
       if (curRes.ok) {
         const cur = await curRes.json();
@@ -88,17 +92,21 @@ async function fetchFromNetwork(date) {
         if (c && cur.location?.localtime) {
           const hour = parseInt(cur.location.localtime.slice(11, 13), 10);
           hourly[hour] = {
-            temp:   c.temp_c          ?? null,
-            precip: c.precip_mm       ?? null,
-            wind:   c.wind_kph        ?? null,
-            code:   c.condition?.code ?? null,
+            temp:           c.temp_c                        ?? null,
+            precip:         c.precip_mm                     ?? null,
+            wind:           c.wind_kph                      ?? null,
+            code:           c.condition?.code               ?? null,
+            humidity:       c.humidity                      ?? null,
+            uv:             c.uv                            ?? null,
+            chance_of_rain: hourly[hour]?.chance_of_rain    ?? null,
+            aqi_index:      c.air_quality?.["us-epa-index"] ?? null,
           };
         }
       }
     } catch (_) { /* current fetch failed — forecast stands */ }
   } else {
     // History endpoint for past dates.
-    const url = `${BASE_URL}/history.json?key=${API_KEY}&q=${Q}&dt=${date}&aqi=no`;
+    const url = `${BASE_URL}/history.json?key=${API_KEY}&q=${Q}&dt=${date}&aqi=yes`;
     const res = await fetch(url, { timeout: 15_000 });
     if (!res.ok) throw new Error(`WeatherAPI history ${res.status} for ${date}`);
     const json = await res.json();

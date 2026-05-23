@@ -2292,6 +2292,47 @@ function bindNewSidebarControls() {
 
   // Populate weather widget — shared by both paths. Refreshes every 5 min so
   // the displayed conditions track WeatherAPI's real-time current reading.
+  // The 2×2 grid cycles between two pages every 3 seconds:
+  //   Page 0: temp / condition / precip / wind
+  //   Page 1: humidity / UV / air quality / chance of rain
+  const AQI_LABELS = ["", "Good", "Moderate", "Unhealthy (sensitive)", "Unhealthy", "Very Unhealthy", "Hazardous"];
+  const WX_PAGES = [
+    (w) => [
+      `${Math.round(w.temp)}°C`,
+      w.label || "",
+      `💧 ${w.precip != null ? w.precip.toFixed(1) : "--"} mm`,
+      `🌬 ${w.wind != null ? Math.round(w.wind) : "--"} km/h`,
+    ],
+    (w) => [
+      `💦 ${w.humidity != null ? Math.round(w.humidity) : "--"}%`,
+      `UV ${w.uv != null ? w.uv : "--"}`,
+      `🌫 ${w.aqi_index != null ? AQI_LABELS[w.aqi_index] || w.aqi_index : "--"}`,
+      `🌧 ${w.chance_of_rain != null ? w.chance_of_rain : "--"}% rain`,
+    ],
+  ];
+
+  let _wxPage = 0;
+  let _wxCycleTimer = null;
+
+  function applyWxPage(w, page) {
+    const ids = ["wx-temp", "wx-cond", "wx-precip", "wx-wind"];
+    const vals = WX_PAGES[page](w);
+    ids.forEach((id, i) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = vals[i];
+    });
+  }
+
+  function startWxCycle(w) {
+    if (_wxCycleTimer) clearInterval(_wxCycleTimer);
+    _wxPage = 0;
+    applyWxPage(w, 0);
+    _wxCycleTimer = setInterval(() => {
+      _wxPage = (_wxPage + 1) % WX_PAGES.length;
+      applyWxPage(w, _wxPage);
+    }, 3000);
+  }
+
   function refreshWeatherWidget() {
     fetch("/api/weather?date=today")
       .then(r => r.json())
@@ -2299,14 +2340,7 @@ function bindNewSidebarControls() {
         const klHour = new Date(Date.now() + 8 * 3600 * 1000).getUTCHours();
         const w = hours[klHour] || hours[String(klHour)] || null;
         if (!w) return;
-        const tempEl   = document.getElementById("wx-temp");
-        const condEl   = document.getElementById("wx-cond");
-        const precipEl = document.getElementById("wx-precip");
-        const windEl   = document.getElementById("wx-wind");
-        if (tempEl)   tempEl.textContent   = `${Math.round(w.temp)}°C`;
-        if (condEl)   condEl.textContent   = w.label || "";
-        if (precipEl) precipEl.textContent = `💧 ${w.precip != null ? w.precip.toFixed(1) : "--"} mm`;
-        if (windEl)   windEl.textContent   = `🌬 ${w.wind != null ? Math.round(w.wind) : "--"} km/h`;
+        startWxCycle(w);
       })
       .catch(() => {});
   }
