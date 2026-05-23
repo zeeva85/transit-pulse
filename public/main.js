@@ -2319,7 +2319,7 @@ function bindNewSidebarControls() {
     _wxCycleTimer = setInterval(() => {
       _wxPage = (_wxPage + 1) % WX_PAGES.length;
       applyWxPage(w, _wxPage);
-    }, 3000);
+    }, 5000);
   }
 
   function refreshWeatherWidget() {
