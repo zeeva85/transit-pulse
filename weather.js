@@ -89,7 +89,6 @@ async function fetchFromNetwork(date) {
       const curRes = await fetch(curUrl, { timeout: 15_000 });
       if (curRes.ok) {
         const cur = await curRes.json();
-        console.log("[weather] current air_quality:", JSON.stringify(cur.current?.air_quality));
         const c   = cur.current;
         if (c && cur.location?.localtime) {
           const hour = parseInt(cur.location.localtime.slice(11, 13), 10);

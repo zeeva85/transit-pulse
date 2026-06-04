@@ -947,6 +947,25 @@ body.light-mode #disclaimer-banner { background: #ffffff; color: #111827; border
 body.light-mode #disclaimer-banner button { border-color: #d1d5db; color: #111827; }
 body.light-mode #disclaimer-banner button:hover { border-color: #2563eb; color: #2563eb; }
 
+/* Feed-empty banner — shown when GTFS-RT returns 0 vehicles */
+#feed-empty-banner {
+  position: fixed;
+  top: 70px;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 20px;
+  font-size: 13px;
+  background: #78350f;
+  color: #fef3c7;
+  border-bottom: 1px solid #d97706;
+  z-index: 200;
+}
+body.light-mode #feed-empty-banner { background: #fffbeb; color: #78350f; border-bottom-color: #f59e0b; }
+
 /* Rollover overlay — full-page freeze while midnight pipeline runs */
 #rollover-overlay {
   position: fixed;

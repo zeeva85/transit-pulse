@@ -409,9 +409,11 @@ let feedCache = { ts: 0, buses: [] };
 let fetchInFlight = false;
 let feedFailureCount = 0;
 let feedSuccessCount = 0;
+let feedEmptyCount = 0;
 let lastFeedError = null;
 let lastFeedFailureMs = 0;
 let lastFeedSuccessMs = Date.now();
+let lastFeedEmptyMs = 0;
 
 // Per-hour KL weather cache — fetched once per hour, shared across all
 // appendTick calls in that hour. Non-blocking: if WeatherAPI is down,
@@ -752,6 +754,13 @@ async function fetchFeed(cacheMs = FEED_CACHE_BASE_MS) {
   lastFeedSuccessMs = now;
   feedFailureCount = 0; // reset consecutive failure count on success
   lastFeedError = null;
+  if (buses.length === 0) {
+    feedEmptyCount += 1;
+    lastFeedEmptyMs = now;
+    console.warn(`[feed] 0 vehicles returned from GTFS-RT (consecutive empty: ${feedEmptyCount})`);
+  } else {
+    feedEmptyCount = 0; // reset on any non-empty tick
+  }
   return buses;
 
   } catch (err) {
@@ -991,8 +1000,10 @@ app.get("/api/health", (_req, res) => {
     feed_ok: feedFailureCount === 0,
     feed_failure_count: feedFailureCount,
     feed_success_count: feedSuccessCount,
+    feed_empty_count: feedEmptyCount,
     last_feed_failure_ms: lastFeedFailureMs || null,
     last_feed_success_ms: lastFeedSuccessMs || null,
+    last_feed_empty_ms: lastFeedEmptyMs || null,
     feed_down_for_ms: feedFailureCount > 0 && lastFeedFailureMs ? nowMs - lastFeedSuccessMs : 0,
     ...speedStateStats(),
     heatmap: accumulatorStats(),

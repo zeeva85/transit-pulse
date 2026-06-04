@@ -1924,6 +1924,11 @@ function bindDatePickerToMap() {
   if (!dp) return;
   dp.addEventListener("change", async (e) => {
     state.date = e.target.value || "today";
+    // Hide feed-empty banner immediately when switching to historical view.
+    if (isHistoricalDate()) {
+      const b = document.getElementById("feed-empty-banner");
+      if (b) b.style.display = "none";
+    }
     // Only persist manual date picks — never persist auto-switch selections.
     if (!state.autoSwitchedToHistorical) {
       if (state.date && state.date !== "today") {
@@ -2198,6 +2203,27 @@ function bindNewSidebarControls() {
   }
 
   pollRollover();
+
+  // Feed-empty banner — polls /api/health every 60 s; shows a warning bar when
+  // the GTFS-RT feed is returning 0 buses (e.g. data.gov.my outage).
+  const feedEmptyBanner = document.getElementById("feed-empty-banner");
+  async function pollFeedEmpty() {
+    try {
+      const res = await fetch("/api/health");
+      const data = await res.json();
+      if (feedEmptyBanner) {
+        if (data.feed_empty_count > 0 && !isHistoricalDate()) {
+          feedEmptyBanner.textContent =
+            "⚠ Live bus feed is returning no data — data.gov.my may be temporarily unavailable.";
+          feedEmptyBanner.style.display = "flex";
+        } else {
+          feedEmptyBanner.style.display = "none";
+        }
+      }
+    } catch { /* health endpoint unavailable — leave banner as-is */ }
+    setTimeout(pollFeedEmpty, 60_000);
+  }
+  pollFeedEmpty();
 
   // Kick off bus-art status and update every minute.
   updateBusArtStatus();
