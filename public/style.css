@@ -1190,6 +1190,103 @@ body.light-mode #admin-password {
   border-color: #d0d7de;
 }
 
+/* ================================================================
+   GPS SPEEDOMETER
+   ================================================================ */
+
+#spd-display {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 12px 0 10px;
+}
+
+#spd-value {
+  font-size: 52px;
+  font-weight: 700;
+  line-height: 1;
+  color: #e6e6e6;
+  font-variant-numeric: tabular-nums;
+  min-width: 3ch;
+  text-align: right;
+}
+
+#spd-unit-label {
+  font-size: 16px;
+  color: #8b949e;
+  font-weight: 500;
+  padding-bottom: 6px;
+}
+
+.spd-unit-group {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.spd-unit-btn {
+  flex: 1;
+  padding: 4px 0;
+  background: transparent;
+  color: #8b949e;
+  border: 1px solid #2a2f3a;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.spd-unit-btn:hover { background: #1c2128; color: #cdd9e5; }
+.spd-unit-btn.active { background: #1f3a5f; color: #58a6ff; border-color: #388bfd; }
+
+.spd-smooth-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #8b949e;
+  margin-bottom: 8px;
+  cursor: pointer;
+}
+.spd-smooth-row input[type="checkbox"] { margin: 0; }
+
+/* GPS permission modal */
+#spd-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 13, 20, 0.82);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+#spd-modal[hidden] { display: none; }
+
+.spd-modal-card {
+  background: rgba(22, 27, 34, 0.97);
+  border: 1px solid #2a2f3a;
+  border-radius: 12px;
+  padding: 28px 24px;
+  max-width: 320px;
+  width: calc(100% - 48px);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  text-align: center;
+}
+
+.spd-modal-icon { font-size: 36px; margin-bottom: 12px; }
+
+/* light mode overrides */
+body.light-mode #spd-value { color: #1c2128; }
+body.light-mode #spd-unit-label { color: #57606a; }
+body.light-mode .spd-unit-btn { color: #57606a; border-color: #d0d7de; }
+body.light-mode .spd-unit-btn:hover { background: #f6f8fa; color: #1f2328; }
+body.light-mode .spd-unit-btn.active { background: #dbeafe; color: #0969da; border-color: #0969da; }
+body.light-mode .spd-smooth-row { color: #57606a; }
+body.light-mode .spd-modal-card { background: rgba(255,255,255,0.97); border-color: #d0d7de; box-shadow: 0 8px 32px rgba(0,0,0,0.15); }
+body.light-mode .spd-modal-card p:not(.meta) { color: #1c2128; }
+
 #trip-origin, #trip-destination {
   width: 100%;
   margin-top: 4px;

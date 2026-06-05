@@ -2643,3 +2643,160 @@ function bindNewSidebarControls() {
   }
 })();
 
+// ──────────────────────────────────────────────────────────────────────────
+// GPS Speedometer
+// ──────────────────────────────────────────────────────────────────────────
+(function () {
+  const section      = document.getElementById("gps-speedometer");
+  if (!section) return;
+
+  const idleDiv      = document.getElementById("spd-idle");
+  const activeDiv    = document.getElementById("spd-active");
+  const errorDiv     = document.getElementById("spd-error");
+  const valueEl      = document.getElementById("spd-value");
+  const unitLabelEl  = document.getElementById("spd-unit-label");
+  const startBtn     = document.getElementById("spd-start-btn");
+  const stopBtn      = document.getElementById("spd-stop-btn");
+  const retryBtn     = document.getElementById("spd-retry-btn");
+  const errorMsgEl   = document.getElementById("spd-error-msg");
+  const smoothCb     = document.getElementById("spd-smooth");
+  const unitBtns     = section.querySelectorAll(".spd-unit-btn");
+  const modal        = document.getElementById("spd-modal");
+  const modalConfirm = document.getElementById("spd-modal-confirm");
+  const modalCancel  = document.getElementById("spd-modal-cancel");
+
+  let watchId   = null;
+  let unit      = "kmh";
+  let speedBuf  = [];
+  let prevPos   = null;
+  const BUF_SIZE = 3;
+
+  function haversineKmh(lat1, lon1, lat2, lon2, dtMs) {
+    if (dtMs <= 0) return 0;
+    const R = 6371;
+    const toRad = d => d * Math.PI / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a = Math.sin(dLat / 2) ** 2 +
+              Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    const km = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return (km / (dtMs / 1000)) * 3600;
+  }
+
+  function convertFromKmh(kmh) {
+    if (unit === "mph") return kmh * 0.621371;
+    if (unit === "ms")  return kmh / 3.6;
+    return kmh;
+  }
+
+  function unitLabelText() {
+    if (unit === "mph") return "mph";
+    if (unit === "ms")  return "m/s";
+    return "km/h";
+  }
+
+  function onPosition(pos) {
+    const { latitude: lat, longitude: lon, speed } = pos.coords;
+    const tMs = pos.timestamp;
+
+    let kmh;
+    if (speed !== null && speed !== undefined) {
+      kmh = speed * 3.6;
+    } else if (prevPos) {
+      kmh = haversineKmh(prevPos.lat, prevPos.lon, lat, lon, tMs - prevPos.t);
+    } else {
+      kmh = 0;
+    }
+    prevPos = { lat, lon, t: tMs };
+
+    kmh = Math.max(0, kmh);
+
+    speedBuf.push(kmh);
+    if (speedBuf.length > BUF_SIZE) speedBuf.shift();
+
+    const displayKmh = smoothCb.checked
+      ? speedBuf.reduce((a, b) => a + b, 0) / speedBuf.length
+      : kmh;
+
+    valueEl.textContent = Math.round(convertFromKmh(displayKmh));
+  }
+
+  function onError(err) {
+    stopTracking();
+    const msgs = {
+      1: "GPS access denied. Enable location in your browser settings and try again.",
+      2: "GPS signal unavailable. Try outdoors with a clear sky.",
+      3: "GPS timed out. Move to a clearer area and try again.",
+    };
+    showState("error", msgs[err.code] || "GPS error. Please try again.");
+  }
+
+  function startTracking() {
+    speedBuf = [];
+    prevPos  = null;
+    watchId  = navigator.geolocation.watchPosition(onPosition, onError, {
+      enableHighAccuracy: true,
+      maximumAge: 0,
+      timeout: 10000,
+    });
+    showState("active");
+  }
+
+  function stopTracking() {
+    if (watchId !== null) {
+      navigator.geolocation.clearWatch(watchId);
+      watchId = null;
+    }
+    speedBuf = [];
+    prevPos  = null;
+  }
+
+  function showState(state, errMsg) {
+    idleDiv.hidden   = state !== "idle";
+    activeDiv.hidden = state !== "active";
+    errorDiv.hidden  = state !== "error";
+    if (state === "error" && errMsg) errorMsgEl.textContent = errMsg;
+    if (state === "active") {
+      valueEl.textContent    = "0";
+      unitLabelEl.textContent = unitLabelText();
+    }
+  }
+
+  function openModal() {
+    if (!navigator.geolocation) {
+      showState("error", "GPS is not supported in this browser.");
+      return;
+    }
+    modal.hidden = false;
+  }
+
+  startBtn.addEventListener("click", openModal);
+  retryBtn.addEventListener("click", openModal);
+
+  modalConfirm.addEventListener("click", () => {
+    modal.hidden = true;
+    startTracking();
+  });
+
+  modalCancel.addEventListener("click", () => { modal.hidden = true; });
+
+  stopBtn.addEventListener("click", () => {
+    stopTracking();
+    showState("idle");
+  });
+
+  unitBtns.forEach(btn => {
+    btn.addEventListener("click", () => {
+      unit = btn.dataset.unit;
+      unitBtns.forEach(b => b.classList.toggle("active", b === btn));
+      unitLabelEl.textContent = unitLabelText();
+      speedBuf = [];
+      valueEl.textContent = "0";
+    });
+  });
+
+  smoothCb.addEventListener("change", () => {
+    if (!smoothCb.checked) speedBuf = speedBuf.slice(-1);
+  });
+})();
+

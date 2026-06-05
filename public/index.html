@@ -199,6 +199,37 @@
       Hide buses with unknown route
     </label>
 
+    <div class="admin-section" id="gps-speedometer">
+      <hr class="sidebar-sep" />
+      <h2>📍 My Speed</h2>
+      <p class="meta" style="font-size:11px; margin:0 0 10px;">Best on mobile · Location stays on device</p>
+
+      <div id="spd-idle">
+        <button id="spd-start-btn" class="admin-btn" type="button">▶ Start</button>
+      </div>
+
+      <div id="spd-active" hidden>
+        <div id="spd-display">
+          <span id="spd-value">0</span>
+          <span id="spd-unit-label">km/h</span>
+        </div>
+        <div class="spd-unit-group">
+          <button class="spd-unit-btn active" data-unit="kmh" type="button">km/h</button>
+          <button class="spd-unit-btn" data-unit="mph" type="button">mph</button>
+          <button class="spd-unit-btn" data-unit="ms" type="button">m/s</button>
+        </div>
+        <label class="spd-smooth-row">
+          <input id="spd-smooth" type="checkbox" />
+          Smooth (3-reading avg)
+        </label>
+        <button id="spd-stop-btn" class="admin-btn admin-btn--ghost" type="button">■ Stop</button>
+      </div>
+
+      <div id="spd-error" hidden>
+        <p id="spd-error-msg" style="font-size:11px; color:#f85149; margin:0 0 8px;"></p>
+        <button id="spd-retry-btn" class="admin-btn admin-btn--ghost" type="button">Try again</button>
+      </div>
+    </div>
 
     <div id="sidebar-timeline" hidden>
       <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
@@ -365,6 +396,16 @@
     </section>
 
   </main>
+
+<div id="spd-modal" hidden>
+  <div class="spd-modal-card">
+    <div class="spd-modal-icon">📍</div>
+    <p style="margin:0 0 6px; font-size:14px; font-weight:600; color:#e6e6e6;">Enable GPS Speed</p>
+    <p class="meta" style="font-size:12px; margin:0 0 16px; line-height:1.5;">Your GPS will be used to show your current speed. Your location never leaves your device — nothing is sent to any server.</p>
+    <button id="spd-modal-confirm" class="admin-btn" type="button">Allow &amp; Start</button>
+    <button id="spd-modal-cancel" class="admin-btn admin-btn--ghost" type="button">Cancel</button>
+  </div>
+</div>
 
 <div id="rollover-overlay" hidden>
   <div class="rollover-card">
