@@ -15,7 +15,7 @@
   const ZERO_COLOR = "#000000";
   const SPIKE_COLOR = "#d73027";
 
-  const PHYSICAL_ANCHOR = { raw: 40, corrected: 40, kalman: 40, trust: 40, calc: 2 };
+  const PHYSICAL_ANCHOR = { raw: 40, corrected: 40, kalman: 40, trust: 40, calc: 8 };
 
   const BIN_OFFSETS = {
     raw: [-40, -25, -15, -5, 15, 30, 50, 80],
@@ -25,7 +25,7 @@
     calc: [-2, -1.5, -1, -0.5, 1, 3, 6, 13],
   };
 
-  const SPIKE_THRESHOLD = { raw: 120, corrected: 120, kalman: 120, trust: 100, calc: 15 };
+  const SPIKE_THRESHOLD = { raw: 120, corrected: 120, kalman: 120, trust: 100, calc: 80 };
 
   const ABSTRACT_LABELS = [
     "very slow",

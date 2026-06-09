@@ -24,7 +24,7 @@ const PHYSICAL_ANCHOR = {
   corrected: 40,
   kalman: 40,
   trust: 40,
-  calc: 2,
+  calc: 8,
 };
 
 // 8 offsets from anchor that define 7 bin edges. Asymmetric on purpose
@@ -43,7 +43,7 @@ const SPIKE_THRESHOLD = {
   corrected: 120,
   kalman: 120,
   trust: 100,
-  calc: 15,
+  calc: 80,
 };
 
 // Abstract bin labels — same across modes so the legend can be shared.

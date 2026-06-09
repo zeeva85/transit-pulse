@@ -325,23 +325,20 @@ function recordPositionAndComputeSpeed(busId, lat, lon, tMs, speedRaw, nowMs, pr
   //   - `prev` is the previous tick's prev_positions entry, NOT the last
   //     positionHistory deque entry. A bus absent for the previous tick has
   //     no prev → EKF gets dt = 1.0, calc-speed stays None, status = Moving.
-  //   - `dt` for both EKF and calc-speed is `wallclock_now - prev.timestamp`
-  //     (NOT `this_tick_vehicle_ts - prev_tick_vehicle_ts`). `prev.time` here
-  //     stores the prev tick's vehicle.timestamp (or pipeline-now fallback),
-  //     same as Python's `prev_positions[vid]["timestamp"]`.
+  //   - `dt` for both EKF and calc-speed is `curr_vehicle_ts - prev_vehicle_ts`
+  //     (GPS-to-GPS, same clock both sides). `prev.time` stores the prev tick's
+  //     vehicle.timestamp (or pipeline-now fallback). 120 s cap guards stale
+  //     reappearances; dt <= 0 (duplicate/backwards timestamp) returns null.
   let speedCalc = null;
   let dtSec = null;
   let displacementM = null;
   let moved = true; // Python `detect_movement` default before the `if old:`
 
   if (prev) {
-    dtSec = (nowMs - prev.time) / 1000;
+    dtSec = (tMs - prev.time) / 1000;
     const km = haversineKm(prev.lat, prev.lon, lat, lon);
     displacementM = km * 1000;
-    // Match Python busapp/speeds/trust.py:33-35 — calculated_speed is
-    // haversine/elapsed_hours with no dt or speed bounds. Falls through to 0
-    // when elapsed_hours <= 0 (division by zero would be undefined otherwise).
-    speedCalc = dtSec > 0 ? (km / (dtSec / 3600)) : 0;
+    speedCalc = dtSec > 0 ? (km / (dtSec / 3600)) : null;
     // Override the default `moved = True`. Python:
     //   moved = (distance_km * 1000) > distance_threshold_m or data["speed"] > 1
     moved = displacementM > STATUS_DISTANCE_THRESHOLD_M || speedRaw > 1;
