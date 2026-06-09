@@ -198,9 +198,15 @@ async function loadJsonlFile(file, onRow) {
 // plain objects with native Date for `time` and nullable numbers for missing
 // values, which maps cleanly.
 async function loadParquetFile(file, onRow) {
-  if (!fs.existsSync(file)) return 0;
+  if (!fs.existsSync(file)) return null;
+  let buf;
+  try {
+    buf = fs.readFileSync(file);
+  } catch (err) {
+    console.warn(`[store] cannot read ${file}: ${err.message}`);
+    return null;
+  }
   const { parquetReadObjects } = await getHyparquet();
-  const buf = fs.readFileSync(file);
   const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
 
   // Ask only for the columns we need — hyparquet honors this and skips the
@@ -228,11 +234,14 @@ async function loadParquetFile(file, onRow) {
   ];
 
   let count = 0;
-  // parquetReadObjects buffers the whole file — fine for our ~50k-row days.
-  const rows = await parquetReadObjects({
-    file: ab,
-    columns: wantedColumns,
-  });
+  let rows;
+  try {
+    // parquetReadObjects buffers the whole file — fine for our ~50k-row days.
+    rows = await parquetReadObjects({ file: ab, columns: wantedColumns });
+  } catch (err) {
+    console.warn(`[store] corrupt parquet ${file}: ${err.message} — skipping`);
+    return null;
+  }
   for (const r of rows) {
     if (r.bus_id == null) continue;
     // Prefer adj_lat/adj_lon when present (Pass-16 cleanup).
@@ -270,11 +279,18 @@ async function loadParquetFile(file, onRow) {
 //   3. ../history/<date>.parquet  — Python-generated historical data
 async function loadDate(klDateStr, onRow) {
   const localParquet = path.join(DATA_DIR, `${klDateStr}.parquet`);
-  if (fs.existsSync(localParquet)) return await loadParquetFile(localParquet, onRow);
+  if (fs.existsSync(localParquet)) {
+    const n = await loadParquetFile(localParquet, onRow);
+    if (n !== null) return n;  // null = corrupt — fall through to JSONL
+    console.warn(`[store] ${klDateStr}.parquet is corrupt, falling back to JSONL`);
+  }
   const jsonl = fileFor(klDateStr);
   if (fs.existsSync(jsonl)) return await loadJsonlFile(jsonl, onRow);
   const parquet = path.join(HISTORY_DIR, `${klDateStr}.parquet`);
-  if (fs.existsSync(parquet)) return await loadParquetFile(parquet, onRow);
+  if (fs.existsSync(parquet)) {
+    const n = await loadParquetFile(parquet, onRow);
+    if (n !== null) return n;
+  }
   return 0;
 }
 
