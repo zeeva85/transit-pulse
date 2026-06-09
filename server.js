@@ -263,6 +263,17 @@ function loadGtfsStatic() {
 let gtfs = loadGtfsStatic();
 let snapper = createSnapper(gtfs.shapesById, gtfs.shapesByRoute);
 
+// Build bus_id → LRN_<bus_id> shape_id map from promoted learned shapes.
+// Called before each augment so newly-promoted buses are always included.
+// Uses the live gtfs.shapesById which already includes extended_shapes.txt.
+function buildInferredByBus() {
+  const out = {};
+  for (const shapeId of Object.keys(gtfs.shapesById)) {
+    if (shapeId.startsWith("LRN_")) out[shapeId.slice(4)] = shapeId;
+  }
+  return out;
+}
+
 function reloadGtfsStatic() {
   gtfs = loadGtfsStatic();
   snapper = createSnapper(gtfs.shapesById, gtfs.shapesByRoute);
@@ -520,7 +531,7 @@ async function maybeRunDayRollover(nowMs) {
       model,
       snapper,
       gtfs.shapesByRoute,
-      {}
+      buildInferredByBus()
     );
     const t2 = Date.now();
     console.log(
@@ -1233,7 +1244,7 @@ app.post("/api/maintenance/run", requireAdmin, express.json({ limit: "16kb" }), 
           model,
           snapper,
           gtfs.shapesByRoute,
-          {} // no inferred-by-bus map yet — future work; see note below
+          buildInferredByBus()
         );
         if (!result.skipped) {
           augmentedFiles += 1;
@@ -1610,7 +1621,7 @@ async function startupMaintenance() {
         model,
         snapper,
         gtfs.shapesByRoute,
-        {}
+        buildInferredByBus()
       );
       const conv = await convertDayToParquet(d.date);
       if (conv) {
