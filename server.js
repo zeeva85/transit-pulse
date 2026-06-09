@@ -1356,6 +1356,28 @@ app.get("/api/data/:date", requireAdmin, (req, res) => {
   res.status(404).json({ error: `no data for ${date}` });
 });
 
+// Upload a pre-augmented parquet from an external source (e.g. local Python
+// snap_augment_parquet). Overwrites any existing file for that date.
+// Used by upload-data.sh to push locally-fixed parquets to Railway.
+app.post("/api/data/:date", requireAdmin,
+  express.raw({ type: "*/*", limit: "50mb" }),
+  (req, res) => {
+    const date = req.params.date;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return res.status(400).json({ error: "date must be YYYY-MM-DD" });
+    }
+    const outPath = path.join(DATA_DIR, `${date}.parquet`);
+    try {
+      fs.writeFileSync(outPath, req.body);
+      console.log(`[upload] ${date}.parquet written (${req.body.length} bytes)`);
+      res.json({ ok: true, date, bytes: req.body.length });
+    } catch (err) {
+      console.error(`[upload] ${date} failed:`, err.message);
+      res.status(500).json({ error: "Write failed" });
+    }
+  }
+);
+
 app.get("/api/rollover-status", (_req, res) => {
   res.json({
     in_progress: rolloverState.inProgress,
