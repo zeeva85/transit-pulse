@@ -180,14 +180,36 @@
     };
   }
 
+  // Server-binned live path: same 13-min bins, computed server-side.
+  // `corrected` maps to the trust column on purpose — speedFromTrailPoint
+  // (main.js) has no "corrected" case, so corrected mode always fell through
+  // to the trust default here; preserved exactly.
+  const COL_BY_MODE = { raw: 1, calc: 2, kalman: 3, trust: 4 };
+  function pointsFromBins(sb, mode) {
+    const col = COL_BY_MODE[mode] || 4;
+    const out = [];
+    for (const r of sb.bins) {
+      const v = r[col];
+      if (v == null) continue;
+      const midMs = sb.anchor_ms + r[0] * sb.bin_ms + sb.bin_ms / 2;
+      out.push([new Date(midMs).toISOString(), v]);
+    }
+    return out;
+  }
+
   // Render the speed-vs-time chart for a single bus. `getSpeed(point)`
   // returns the speed value to plot for one trail entry — keyed to the
-  // active speed-source setting in the parent app.
-  function render(bus, modeLabel, getSpeed) {
+  // active speed-source setting in the parent app. `mode` is the active
+  // speed-source key (raw/corrected/calc/kalman/trust) for the
+  // server-binned path.
+  function render(bus, modeLabel, getSpeed, mode) {
+    const sb = bus && bus.sparkline_bins && bus.sparkline_bins.bins && bus.sparkline_bins.bins.length > 0
+      ? bus.sparkline_bins
+      : null;
     const fullTrail = bus && (
       (bus.sparkline_trail && bus.sparkline_trail.length > 0) ? bus.sparkline_trail : bus.trail
     );
-    const noTrail = !fullTrail || fullTrail.length === 0;
+    const noTrail = !sb && (!fullTrail || fullTrail.length === 0);
     if (noTrail) {
       const msg = bus
         ? `Bus ${bus.bus_id} has no trail data yet — wait a couple of ticks.`
@@ -203,7 +225,7 @@
       return;
     }
 
-    const points = binTrail(fullTrail, getSpeed);
+    const points = sb ? pointsFromBins(sb, mode) : binTrail(fullTrail, getSpeed);
 
     if (points.length === 0) {
       const msg = `Bus ${bus.bus_id} has no ${modeLabel} readings yet.`;

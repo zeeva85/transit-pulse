@@ -1626,7 +1626,7 @@ function renderSelectedBusTimeline() {
   const bus = state.selectedBus
     ? state.buses.find((b) => b.bus_id === state.selectedBus)
     : null;
-  window.busTimeline.render(bus, speedSourceLabel(), speedFromTrailPoint);
+  window.busTimeline.render(bus, speedSourceLabel(), speedFromTrailPoint, state.speedSource);
 }
 
 function schedulePolling() {
@@ -2069,6 +2069,7 @@ async function start() {
     window.busTable.mount({
       onSelect: (id) => (id ? selectBus(id) : clearSelection()),
       getSpeed: (b) => effectiveSpeed(b),
+      getMode: () => state.speedSource,
       onFilterChange: () => rebuildLayers(),
     });
   }

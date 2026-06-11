@@ -288,10 +288,60 @@ function reloadGtfsStatic() {
 
 const positionHistory = new Map(); // bus_id -> [{ lat, lon, time, speed, calculated_speed, speed_kalman, weighted_speed }]
 
-// Full-day speed timeline keyed by bus_id — no cap, accumulates all sessions
-// across the service day. Reset at midnight rollover. Fed to the sparkline in
-// the bus table so the trend covers the whole day, not just the last 20 ticks.
-const sparklineHistory = new Map(); // bus_id -> [{ time, speed, calculated_speed, speed_kalman, weighted_speed }]
+// Full-day speed timeline keyed by bus_id — pre-binned into 13-min KL-anchored
+// buckets (BIN_MINUTES=13, Python parity), reset at midnight rollover. Shipped
+// to the bus-table sparkline + detailed timeline, which render bin means
+// directly. Binning server-side (instead of shipping raw per-tick entries)
+// keeps the /api/buses payload flat (≤ ~111 bins/bus/day) instead of growing
+// all day — raw entries reached ~6-7 MB per poll by evening and the frontend
+// collapsed them to these exact bins anyway. Per-mode means bake in the
+// frontend's per-point fallback chain (mode value ?? raw speed), so bin means
+// are identical to the old client-side binning.
+const SPARKLINE_BIN_MS = 13 * 60_000;
+const KL_OFFSET_MS = 8 * 3600 * 1000; // KL is UTC+8, no DST
+function klMidnightMs(tMs) {
+  return Math.floor((tMs + KL_OFFSET_MS) / 86_400_000) * 86_400_000 - KL_OFFSET_MS;
+}
+const sparklineHistory = new Map(); // bus_id -> { anchorMs, bins: Map<binIdx, {rn,rs,cn,cs,kn,ks,tn,ts}> }
+
+function recordSparkline(busId, e) {
+  if (e.time == null) return;
+  let sl = sparklineHistory.get(busId);
+  if (!sl) {
+    sl = { anchorMs: klMidnightMs(e.time), bins: new Map() };
+    sparklineHistory.set(busId, sl);
+  }
+  const idx = Math.floor((e.time - sl.anchorMs) / SPARKLINE_BIN_MS);
+  let b = sl.bins.get(idx);
+  if (!b) {
+    b = { rn: 0, rs: 0, cn: 0, cs: 0, kn: 0, ks: 0, tn: 0, ts: 0 };
+    sl.bins.set(idx, b);
+  }
+  const raw = e.speed;
+  if (raw != null) { b.rn += 1; b.rs += raw; }
+  const calc = e.calculated_speed != null ? e.calculated_speed : raw;
+  if (calc != null) { b.cn += 1; b.cs += calc; }
+  const kal = e.speed_kalman != null ? e.speed_kalman : raw;
+  if (kal != null) { b.kn += 1; b.ks += kal; }
+  const tru = e.weighted_speed != null ? e.weighted_speed : raw;
+  if (tru != null) { b.tn += 1; b.ts += tru; }
+}
+
+// Wire form: { anchor_ms, bin_ms, bins: [[binIdx, raw, calc, kalman, trust], …] }
+// sorted by binIdx; per-mode mean (2 dp) or null when that mode had no samples.
+function serializeSparkline(sl) {
+  if (!sl || sl.bins.size === 0) return null;
+  const bins = [...sl.bins.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([i, b]) => [
+      i,
+      b.rn ? round2(b.rs / b.rn) : null,
+      b.cn ? round2(b.cs / b.cn) : null,
+      b.kn ? round2(b.ks / b.kn) : null,
+      b.tn ? round2(b.ts / b.tn) : null,
+    ]);
+  return { anchor_ms: sl.anchorMs, bin_ms: SPARKLINE_BIN_MS, bins };
+}
 
 // Wholesale-replaced each tick — analogous to Python `st.session_state
 // .prev_positions`. EKF and calc-speed read from THIS, not positionHistory,
@@ -386,10 +436,8 @@ function recordPositionAndComputeSpeed(busId, lat, lon, tMs, speedRaw, nowMs, pr
   while (hist.length > MAX_HISTORY) hist.shift();
   positionHistory.set(busId, hist);
 
-  // Full-day sparkline buffer — no cap, reset at midnight rollover.
-  const sl = sparklineHistory.get(busId) || [];
-  sl.push({ time: tMs, speed: speedRaw, calculated_speed: speedCalc, speed_kalman: ekfResult.filteredSpeedKmh, weighted_speed: trustResult.weighted });
-  sparklineHistory.set(busId, sl);
+  // Full-day sparkline bins — reset at midnight rollover.
+  recordSparkline(busId, { time: tMs, speed: speedRaw, calculated_speed: speedCalc, speed_kalman: ekfResult.filteredSpeedKmh, weighted_speed: trustResult.weighted });
 
   // EXACT Python parity on rounding (busapp/speeds/trust.py:79-83 in the
   // rows.append() that builds the DataFrame):
@@ -747,7 +795,7 @@ async function fetchFeed(cacheMs = FEED_CACHE_BASE_MS) {
       is_stale: pb.is_stale,
       age_seconds: pb.age_seconds,
       trail: pb._trail,
-      sparkline_trail: sparklineHistory.get(pb.bus_id) || [],
+      sparkline_bins: serializeSparkline(sparklineHistory.get(pb.bus_id)),
       snapped_trail: snapper.snapTrail(pb._trail, pb.route),
     });
   }
@@ -1565,9 +1613,7 @@ async function replayTodaysData() {
     while (hist.length > MAX_HISTORY) hist.shift();
     positionHistory.set(row.bus_id, hist);
 
-    const sl = sparklineHistory.get(row.bus_id) || [];
-    sl.push({ time: row.time, speed: row.speed, calculated_speed: row.calculated_speed, speed_kalman: row.speed_kalman, weighted_speed: row.weighted_speed });
-    sparklineHistory.set(row.bus_id, sl);
+    recordSparkline(row.bus_id, { time: row.time, speed: row.speed, calculated_speed: row.calculated_speed, speed_kalman: row.speed_kalman, weighted_speed: row.weighted_speed });
     rowCount += 1;
   });
   if (rowCount > 0) {
@@ -1603,11 +1649,14 @@ setInterval(() => maybeRunDayRollover(Date.now()), 60_000).unref();
 // written to JSONL even when no browser client is actively polling /api/buses.
 // Without this, the server collects data ONLY when a browser requests /api/buses,
 // so overnight or between sessions the JSONL stays empty.
-// Fires every 25 s but passes a 35 s cache window: if a browser has written
-// within the last 35 s the background skips silently, preventing double-writes.
-// When no browser is active the cache is always stale and the background owns
-// all writes (~every 25 s, matching the upstream 30 s feed cadence).
-setInterval(() => fetchFeed(35_000).catch(() => {}), 30_000).unref();
+// Checks every 10 s against a 28 s cache window: when idle this fetches every
+// ~30 s (matching the upstream GTFS-RT cadence); if a browser refreshed the
+// cache <28 s ago the check skips silently, preventing double-writes.
+// NOTE: the check interval MUST be shorter than the cache window — a check
+// interval >= window means the cache is never stale on the next tick and the
+// effective cadence silently doubles (this exact bug halved 2026 data density;
+// per-bus median inter-row delta was 60 s instead of 30 s).
+setInterval(() => fetchFeed(28_000).catch(() => {}), 10_000).unref();
 
 async function startupMaintenance() {
   const today = klDate(Date.now());
