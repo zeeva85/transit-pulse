@@ -62,14 +62,23 @@ const { augmentJsonlFile } = require("./augment-jsonl");
 const PORT = process.env.PORT || 3000;
 
 // Git SHA used as cache-bust query string for CSS/JS assets.
-// Falls back to a startup timestamp if git is unavailable.
+// Resolution order: Railway's commit env var (the runtime image has no
+// usable .git — production served a LITERAL EMPTY `?v=` on every deploy,
+// so the 1-year immutable Cache-Control pinned returning visitors to stale
+// assets) → local git → startup timestamp. The value is validated so an
+// empty/garbage string can never reach the asset URLs again.
 let BUILD_VERSION = Date.now().toString(36);
 try {
-  BUILD_VERSION = execSync("git rev-parse --short HEAD", {
+  const sha = execSync("git rev-parse --short HEAD", {
     cwd: __dirname,
     stdio: ["pipe", "pipe", "ignore"],
   }).toString().trim();
+  if (/^[0-9a-f]{7,40}$/.test(sha)) BUILD_VERSION = sha;
 } catch (_) {}
+const RAILWAY_SHA = process.env.RAILWAY_GIT_COMMIT_SHA;
+if (RAILWAY_SHA && /^[0-9a-f]{7,40}$/i.test(RAILWAY_SHA)) {
+  BUILD_VERSION = RAILWAY_SHA.slice(0, 7);
+}
 const FEED_URL =
   "https://api.data.gov.my/gtfs-realtime/vehicle-position/prasarana" +
   "?category=rapid-bus-kl";
