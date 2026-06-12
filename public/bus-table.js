@@ -65,22 +65,17 @@
   }
 
   // Server-binned live path: /api/buses ships sparkline_bins —
-  // { anchor_ms, bin_ms, bins: [[binIdx, raw, calc, kalman, trust], …] } —
-  // pre-binned means identical to the client-side binning below (the server
-  // bakes in the same per-point fallback chain: mode value ?? raw speed).
-  const COL_BY_MODE = { raw: 1, calc: 2, kalman: 3, trust: 4 };
+  // { anchor_ms, bin_ms, bins: [[binIdx, raw, calc, kalman, trust,
+  // corrected], …] } — pre-binned means identical to the client-side binning
+  // below (the server bakes in the same per-point fallback chain:
+  // mode value ?? raw speed). Corrected is a real per-bin history (the old
+  // client path rendered a flat line because trail points carried no
+  // speed_corrected).
+  const COL_BY_MODE = { raw: 1, calc: 2, kalman: 3, trust: 4, corrected: 5 };
 
   function trendFromServerBins(bus) {
     const sb = bus.sparkline_bins;
     const mode = onGetMode ? onGetMode() : "trust";
-    if (mode === "corrected") {
-      // Replicates the old per-point merge ({...bus, ...p}): trail points
-      // carried no speed_corrected, so every point resolved to the bus's
-      // current top-level speed_corrected (a constant), falling back to the
-      // point's raw speed when that was null.
-      if (bus.speed_corrected != null) return sb.bins.map(() => bus.speed_corrected);
-      return sb.bins.map((r) => r[1]).filter((v) => v != null);
-    }
     const col = COL_BY_MODE[mode] || 4;
     return sb.bins.map((r) => r[col]).filter((v) => v != null);
   }

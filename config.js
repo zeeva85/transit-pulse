@@ -214,8 +214,15 @@ const config = {
   // CROSS_DAY_POSITION_JUMP_KM: if a bus's recorded position is > this many km
   //   from its cross-day median, it's considered corrupted and replaced with
   //   the median (adj_lat / adj_lon). Mirrors Python deviation_threshold_m / 1000.
+  // CROSS_DAY_MODEL_MAX_DAYS: the typical-position model consumes only the
+  //   most recent N stored days. The build's raw accumulators hold every
+  //   consumed lat/lon in memory until finalize (~1-1.5 GB at a year of
+  //   history if unbounded), and the model rebuilds at midnight rollover on
+  //   the production container while it serves live traffic. A recent window
+  //   is also more representative — routes change over time.
   CROSS_DAY_BUCKETS_PER_DAY:    48,
   CROSS_DAY_POSITION_JUMP_KM:   2,
+  CROSS_DAY_MODEL_MAX_DAYS:     60,
 
   // ── Heatmap accumulator ──────────────────────────────────────────────────────
   // Used by: heatmap.js.

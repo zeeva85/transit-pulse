@@ -302,7 +302,7 @@ const KL_OFFSET_MS = 8 * 3600 * 1000; // KL is UTC+8, no DST
 function klMidnightMs(tMs) {
   return Math.floor((tMs + KL_OFFSET_MS) / 86_400_000) * 86_400_000 - KL_OFFSET_MS;
 }
-const sparklineHistory = new Map(); // bus_id -> { anchorMs, bins: Map<binIdx, {rn,rs,cn,cs,kn,ks,tn,ts}> }
+const sparklineHistory = new Map(); // bus_id -> { anchorMs, bins: Map<binIdx, {rn,rs,cn,cs,kn,ks,tn,ts,on,os}> }
 
 function recordSparkline(busId, e) {
   if (e.time == null) return;
@@ -314,7 +314,7 @@ function recordSparkline(busId, e) {
   const idx = Math.floor((e.time - sl.anchorMs) / SPARKLINE_BIN_MS);
   let b = sl.bins.get(idx);
   if (!b) {
-    b = { rn: 0, rs: 0, cn: 0, cs: 0, kn: 0, ks: 0, tn: 0, ts: 0 };
+    b = { rn: 0, rs: 0, cn: 0, cs: 0, kn: 0, ks: 0, tn: 0, ts: 0, on: 0, os: 0 };
     sl.bins.set(idx, b);
   }
   const raw = e.speed;
@@ -325,10 +325,13 @@ function recordSparkline(busId, e) {
   if (kal != null) { b.kn += 1; b.ks += kal; }
   const tru = e.weighted_speed != null ? e.weighted_speed : raw;
   if (tru != null) { b.tn += 1; b.ts += tru; }
+  const cor = e.speed_corrected != null ? e.speed_corrected : raw;
+  if (cor != null) { b.on += 1; b.os += cor; }
 }
 
-// Wire form: { anchor_ms, bin_ms, bins: [[binIdx, raw, calc, kalman, trust], …] }
-// sorted by binIdx; per-mode mean (2 dp) or null when that mode had no samples.
+// Wire form: { anchor_ms, bin_ms, bins: [[binIdx, raw, calc, kalman, trust,
+// corrected], …] } sorted by binIdx; per-mode mean (2 dp) or null when that
+// mode had no samples.
 function serializeSparkline(sl) {
   if (!sl || sl.bins.size === 0) return null;
   const bins = [...sl.bins.entries()]
@@ -339,6 +342,7 @@ function serializeSparkline(sl) {
       b.cn ? round2(b.cs / b.cn) : null,
       b.kn ? round2(b.ks / b.kn) : null,
       b.tn ? round2(b.ts / b.tn) : null,
+      b.on ? round2(b.os / b.on) : null,
     ]);
   return { anchor_ms: sl.anchorMs, bin_ms: SPARKLINE_BIN_MS, bins };
 }
@@ -436,8 +440,8 @@ function recordPositionAndComputeSpeed(busId, lat, lon, tMs, speedRaw, nowMs, pr
   while (hist.length > MAX_HISTORY) hist.shift();
   positionHistory.set(busId, hist);
 
-  // Full-day sparkline bins — reset at midnight rollover.
-  recordSparkline(busId, { time: tMs, speed: speedRaw, calculated_speed: speedCalc, speed_kalman: ekfResult.filteredSpeedKmh, weighted_speed: trustResult.weighted });
+  // Sparkline bins are recorded in PASS 2 (fetchFeed), after the cross-bus
+  // outlier correction, so the bins can include speed_corrected.
 
   // EXACT Python parity on rounding (busapp/speeds/trust.py:79-83 in the
   // rows.append() that builds the DataFrame):
@@ -536,6 +540,25 @@ let lastKlDateSeen = klDate(Date.now());
 // concurrent ticks.
 let rolloverInFlight = false;
 
+// ── Shared pipeline mutex ─────────────────────────────────────────────────
+// Rollover, /api/maintenance/run, and startupMaintenance all run
+// augmentJsonlFile/convertDayToParquet over the same date files. Without
+// mutual exclusion, two concurrent pipelines write the same <file>.tmp and
+// renameSync the interleaved result over the only copy of a day's data
+// (e.g. an admin maintenance POST while startupMaintenance is still running,
+// or a maintenance run straddling KL midnight). The boolean guards above/
+// below remain as cheap "already running" signals for skip/409 responses;
+// this promise chain is what guarantees the pipelines never overlap.
+let pipelineChain = Promise.resolve();
+function withPipelineLock(fn) {
+  const result = pipelineChain.then(fn);
+  pipelineChain = result.then(
+    () => undefined,
+    () => undefined
+  );
+  return result;
+}
+
 // Rollover state — exposed via /api/rollover-status so the frontend can
 // show a "back in Xs" overlay while the pipeline runs.
 const rolloverState = {
@@ -570,38 +593,40 @@ async function maybeRunDayRollover(nowMs) {
   rolloverState.startedAt = Date.now();
 
   try {
-    const t0 = Date.now();
-    const model = await getCrossDayModel({ rebuild: true });
-    const t1 = Date.now();
+    await withPipelineLock(async () => {
+      const t0 = Date.now();
+      const model = await getCrossDayModel({ rebuild: true });
+      const t1 = Date.now();
 
-    const result = await augmentJsonlFile(
-      yesterday,
-      model,
-      snapper,
-      gtfs.shapesByRoute,
-      buildInferredByBus()
-    );
-    const t2 = Date.now();
-    console.log(
-      `[rollover] ${yesterday}: model built in ${t1 - t0}ms, augmented ${result.augmented_rows}/${result.rows} rows in ${t2 - t1}ms`
-    );
+      const result = await augmentJsonlFile(
+        yesterday,
+        model,
+        snapper,
+        gtfs.shapesByRoute,
+        buildInferredByBus()
+      );
+      const t2 = Date.now();
+      console.log(
+        `[rollover] ${yesterday}: model built in ${t1 - t0}ms, augmented ${result.augmented_rows}/${result.rows} rows in ${t2 - t1}ms`
+      );
 
-    // Convert augmented JSONL to parquet for compact on-disk storage.
-    try {
-      const conv = await convertDayToParquet(yesterday);
-      const t3 = Date.now();
-      if (conv) {
-        const kb = Math.round(conv.size_bytes / 1024);
-        console.log(
-          `[rollover] ${yesterday}: converted to parquet (${conv.rows} rows, ${kb} KB) in ${t3 - t2}ms — total ${t3 - t0}ms`
-        );
+      // Convert augmented JSONL to parquet for compact on-disk storage.
+      try {
+        const conv = await convertDayToParquet(yesterday);
+        const t3 = Date.now();
+        if (conv) {
+          const kb = Math.round(conv.size_bytes / 1024);
+          console.log(
+            `[rollover] ${yesterday}: converted to parquet (${conv.rows} rows, ${kb} KB) in ${t3 - t2}ms — total ${t3 - t0}ms`
+          );
+        }
+      } catch (convErr) {
+        console.error(`[rollover] parquet conversion for ${yesterday} failed:`, convErr);
       }
-    } catch (convErr) {
-      console.error(`[rollover] parquet conversion for ${yesterday} failed:`, convErr);
-    }
 
-    const elapsed = Date.now() - t0;
-    rolloverState.estimatedMs = Math.ceil(elapsed * 1.15);
+      const elapsed = Date.now() - t0;
+      rolloverState.estimatedMs = Math.ceil(elapsed * 1.15);
+    });
   } catch (err) {
     console.error(`[rollover] augmenting ${yesterday} failed:`, err);
   } finally {
@@ -735,10 +760,20 @@ async function fetchFeed(cacheMs = FEED_CACHE_BASE_MS) {
   // we mirror with a slice() for a value-equal copy. The clipped value is
   // distributed unconditionally — no null-out of speed_corrected.
   const rawSpeedsArr = partialBuses.map((b) => b.speed);
-  const correctedArr =
+  let correctedArr =
     rawSpeedsArr.length >= 4
       ? correctOutliers(rawSpeedsArr, activeCorrectionMethod)
       : rawSpeedsArr.slice();
+  // Defense in depth: a correction method must return one value per input.
+  // A shorter array silently pairs bus i with bus j's corrected speed and
+  // persists it (zscore's degenerate path did exactly this before it was
+  // fixed at the source in outliers.js).
+  if (correctedArr.length !== rawSpeedsArr.length) {
+    console.warn(
+      `[feed] correction method ${activeCorrectionMethod} returned ${correctedArr.length} values for ${rawSpeedsArr.length} buses — using raw speeds for this tick`
+    );
+    correctedArr = rawSpeedsArr.slice();
+  }
 
   const buses = [];
   for (let i = 0; i < partialBuses.length; i++) {
@@ -764,6 +799,16 @@ async function fetchFeed(cacheMs = FEED_CACHE_BASE_MS) {
     // Feed the heatmap accumulator. Per-(bus_id, hour, mode) first-stage
     // median; /api/heatmap does the route-level second-stage median.
     recordSample(pb.bus_id, pb.route, pb._tMs, tickSpeeds);
+    // Full-day sparkline bins — recorded here (not PASS 1) so the bins
+    // include the cross-bus speed_corrected. Reset at midnight rollover.
+    recordSparkline(pb.bus_id, {
+      time: pb._tMs,
+      speed: pb.speed,
+      calculated_speed: pb.calculated_speed,
+      speed_kalman: pb.speed_kalman,
+      weighted_speed: pb.weighted_speed,
+      speed_corrected,
+    });
     // Persist so the accumulator survives restarts and pooled / historical
     // features have data to read.
     appendTick(
@@ -972,14 +1017,30 @@ app.get("/api/routes", (_req, res) => {
 
 // Returns the lat/lon bounding box for a specific bus from the historical day
 // that has the most data points for that bus (morning-to-end coverage).
-// Scans all past dates and picks the one with the highest row count.
+// Scans the most recent BUS_BBOX_MAX_DAYS past dates and picks the one with
+// the highest row count. Results are cached per bus_id — a full scan costs
+// seconds of event-loop-blocking parquet decode, and the answer only changes
+// when a past-day file lands or is rewritten (rollover, re-augmentation,
+// upload), so the cache key is a fingerprint of the scanned files' mtimes.
+const BUS_BBOX_MAX_DAYS = 14;
+const busBboxCache = new Map(); // bus_id -> { stamp, payload }
+
 app.get("/api/bus-bbox", async (req, res) => {
   const busId = String(req.query.bus_id || "").trim();
   if (!busId) return res.status(400).json({ error: "bus_id required" });
 
   const today = klDate(Date.now());
-  const pastDates = listDates().filter((d) => d.date < today);
+  // listDates() is sorted newest-first; bound the scan so cost stays flat as
+  // history grows (recent days are also more representative of where a bus
+  // currently roams).
+  const pastDates = listDates()
+    .filter((d) => d.date < today)
+    .slice(0, BUS_BBOX_MAX_DAYS);
   if (pastDates.length === 0) return res.json({ bbox: null });
+
+  const stamp = pastDates.map((d) => `${d.date}:${d.mtime_ms}`).join("|");
+  const cached = busBboxCache.get(busId);
+  if (cached && cached.stamp === stamp) return res.json(cached.payload);
 
   let bestDate = null, bestCount = 0, bestBbox = null;
 
@@ -1004,8 +1065,11 @@ app.get("/api/bus-bbox", async (req, res) => {
     }
   }
 
-  if (!bestBbox) return res.json({ bbox: null });
-  res.json({ bbox: bestBbox, date: bestDate, count: bestCount });
+  const payload = bestBbox
+    ? { bbox: bestBbox, date: bestDate, count: bestCount }
+    : { bbox: null };
+  busBboxCache.set(busId, { stamp, payload });
+  res.json(payload);
 });
 
 app.get("/api/shapes", (req, res) => {
@@ -1233,21 +1297,29 @@ app.post("/api/maintenance/run", requireAdmin, express.json({ limit: "16kb" }), 
     return res.status(409).json({ error: "maintenance already running" });
   }
   maintenanceInFlight = true;
-  const dates = listDates();
-  console.log(
-    `[maintenance] starting single-pass scan of ${dates.length} date(s)…`
-  );
   try {
+    await withPipelineLock(async () => {
+    const dates = listDates();
+    console.log(
+      `[maintenance] starting single-pass scan of ${dates.length} date(s)…`
+    );
     const t0 = Date.now();
     const crossDayCtx = buildCrossDayModelFromRow();
     const unknownCtx = unknownAccumulatorFromRow();
+    // The cross-day model only consumes the most recent N days (memory cap —
+    // see CROSS_DAY_MODEL_MAX_DAYS in config.js); the unknown accumulator
+    // still sees every date. listDates() is newest-first.
+    const modelDates = new Set(
+      dates.slice(0, config.CROSS_DAY_MODEL_MAX_DAYS).map((d) => d.date)
+    );
     let totalRows = 0;
     for (let i = 0; i < dates.length; i++) {
       const d = dates[i];
       const tDate = Date.now();
       let dateRows = 0;
+      const inModel = modelDates.has(d.date);
       await loadDate(d.date, (row) => {
-        crossDayCtx.consume(row);
+        if (inModel) crossDayCtx.consume(row);
         unknownCtx.consume(row, d.date);
         dateRows += 1;
       });
@@ -1256,7 +1328,7 @@ app.post("/api/maintenance/run", requireAdmin, express.json({ limit: "16kb" }), 
         `[maintenance] ${i + 1}/${dates.length} ${d.date}: ${dateRows.toLocaleString()} rows in ${Date.now() - tDate}ms`
       );
     }
-    const model = finalizeCrossDayModel(crossDayCtx, dates.length);
+    const model = finalizeCrossDayModel(crossDayCtx, modelDates.size);
     const unknownCount = await closeUnknownAccumulator(unknownCtx);
     const t1 = Date.now();
     console.log(`[maintenance] scan done in ${t1 - t0}ms; promoting…`);
@@ -1284,6 +1356,12 @@ app.post("/api/maintenance/run", requireAdmin, express.json({ limit: "16kb" }), 
     const today = klDate(Date.now());
     let augmentedFiles = 0;
     let augmentedRows = 0;
+    // Dates whose augmentation threw — these must NOT be converted below:
+    // convertDayToParquet deletes the JSONL after writing, and a parquet
+    // written from un-augmented rows has null adj_*/snap_* columns with no
+    // remaining source to re-augment from. Leave the JSONL in place so the
+    // next maintenance run (or startup) can retry the augment.
+    const augmentFailed = new Set();
     for (const d of dates) {
       if (d.date === today) continue;
       try {
@@ -1302,6 +1380,7 @@ app.post("/api/maintenance/run", requireAdmin, express.json({ limit: "16kb" }), 
           );
         }
       } catch (err) {
+        augmentFailed.add(d.date);
         console.error(`[maintenance] augment ${d.date} failed:`, err);
       }
     }
@@ -1317,6 +1396,12 @@ app.post("/api/maintenance/run", requireAdmin, express.json({ limit: "16kb" }), 
     let convertedRows = 0;
     for (const d of dates) {
       if (d.date === today) continue;
+      if (augmentFailed.has(d.date)) {
+        console.warn(
+          `[maintenance] skipping conversion of ${d.date} — augmentation failed, keeping JSONL for retry`
+        );
+        continue;
+      }
       try {
         const conv = await convertDayToParquet(d.date);
         if (conv != null) {
@@ -1360,6 +1445,7 @@ app.post("/api/maintenance/run", requireAdmin, express.json({ limit: "16kb" }), 
       },
       single_pass_rows: totalRows,
       total_elapsed_ms: t4 - t0,
+    });
     });
   } catch (err) {
     console.error("[api/maintenance/run]", err);
@@ -1613,7 +1699,7 @@ async function replayTodaysData() {
     while (hist.length > MAX_HISTORY) hist.shift();
     positionHistory.set(row.bus_id, hist);
 
-    recordSparkline(row.bus_id, { time: row.time, speed: row.speed, calculated_speed: row.calculated_speed, speed_kalman: row.speed_kalman, weighted_speed: row.weighted_speed });
+    recordSparkline(row.bus_id, { time: row.time, speed: row.speed, calculated_speed: row.calculated_speed, speed_kalman: row.speed_kalman, weighted_speed: row.weighted_speed, speed_corrected: row.speed_corrected });
     rowCount += 1;
   });
   if (rowCount > 0) {
@@ -1659,6 +1745,10 @@ setInterval(() => maybeRunDayRollover(Date.now()), 60_000).unref();
 setInterval(() => fetchFeed(28_000).catch(() => {}), 10_000).unref();
 
 async function startupMaintenance() {
+  await withPipelineLock(() => startupMaintenanceLocked());
+}
+
+async function startupMaintenanceLocked() {
   const today = klDate(Date.now());
   const pending = listDates().filter(
     (d) => d.source === "jsonl" && d.date !== today
@@ -1670,17 +1760,23 @@ async function startupMaintenance() {
 
   // Build cross-day model + unknown accumulator in a single scan pass,
   // same as the API endpoint. All required modules are already imported
-  // at the top of this file.
+  // at the top of this file. Model consumption is capped to the most
+  // recent CROSS_DAY_MODEL_MAX_DAYS dates (memory bound); the unknown
+  // accumulator sees every date.
   const dates = listDates();
+  const modelDates = new Set(
+    dates.slice(0, config.CROSS_DAY_MODEL_MAX_DAYS).map((d) => d.date)
+  );
   const crossDayCtx = buildCrossDayModelFromRow();
   const unknownCtx = unknownAccumulatorFromRow();
   for (const d of dates) {
+    const inModel = modelDates.has(d.date);
     await loadDate(d.date, (row) => {
-      crossDayCtx.consume(row);
+      if (inModel) crossDayCtx.consume(row);
       unknownCtx.consume(row, d.date);
     });
   }
-  const model = finalizeCrossDayModel(crossDayCtx, dates.length);
+  const model = finalizeCrossDayModel(crossDayCtx, modelDates.size);
   await closeUnknownAccumulator(unknownCtx);
   const promotionResult = await promoteLearnedShapes();
   if (promotionResult.promoted > 0) reloadGtfsStatic();

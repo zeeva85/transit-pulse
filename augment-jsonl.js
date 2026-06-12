@@ -109,7 +109,11 @@ async function augmentJsonlFile(date, model, snapper, shapesByRoute, inferredByB
   const prevShapeByBus = new Map();
 
   let augmentedRows = 0;
-  const tmp = file + ".tmp";
+  // Unique per invocation: a fixed .tmp path means two concurrent pipelines
+  // (rollover vs maintenance) interleave writes into one file and rename the
+  // corrupted result over the only copy of the day. The pipeline mutex in
+  // server.js prevents overlap; this makes a collision non-destructive anyway.
+  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
   const out = fs.createWriteStream(tmp, { flags: "w" });
 
   for (const row of rows) {

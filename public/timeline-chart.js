@@ -181,10 +181,10 @@
   }
 
   // Server-binned live path: same 13-min bins, computed server-side.
-  // `corrected` maps to the trust column on purpose — speedFromTrailPoint
-  // (main.js) has no "corrected" case, so corrected mode always fell through
-  // to the trust default here; preserved exactly.
-  const COL_BY_MODE = { raw: 1, calc: 2, kalman: 3, trust: 4 };
+  // `corrected` is a real per-bin history — an upgrade over the old client
+  // path, where speedFromTrailPoint (main.js) had no "corrected" case and
+  // silently plotted trust-weighted values in corrected mode.
+  const COL_BY_MODE = { raw: 1, calc: 2, kalman: 3, trust: 4, corrected: 5 };
   function pointsFromBins(sb, mode) {
     const col = COL_BY_MODE[mode] || 4;
     const out = [];

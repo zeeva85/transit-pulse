@@ -60,7 +60,11 @@ function correctOutliers(speeds, method = "iqr") {
     if (cleaned.length < 2) return speeds.slice();
     const mu2 = mean(cleaned);
     const sigma2 = stdev(cleaned, mu2);
-    if (sigma2 === 0) return cleaned;
+    // Must return one value per input — `cleaned` is shorter than `speeds`,
+    // and the caller pairs corrected[i] with bus i (the filtered array
+    // misaligned every bus after the first removed element and persisted
+    // the wrong values to JSONL). Degenerate spread → no correction.
+    if (sigma2 === 0) return speeds.slice();
     return clipArr(speeds, mu2 - 3 * sigma2, mu2 + 3 * sigma2);
   }
   return speeds.slice();

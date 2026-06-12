@@ -13,7 +13,7 @@
 // Case-3 (no typical at all) → leave the row as-is.
 
 const { loadDate, listDates } = require("./store");
-const { CROSS_DAY_BUCKETS_PER_DAY: BUCKETS_PER_DAY, CROSS_DAY_POSITION_JUMP_KM: POSITION_JUMP_KM } = require("./config");
+const { CROSS_DAY_BUCKETS_PER_DAY: BUCKETS_PER_DAY, CROSS_DAY_POSITION_JUMP_KM: POSITION_JUMP_KM, CROSS_DAY_MODEL_MAX_DAYS: MODEL_MAX_DAYS } = require("./config");
 
 const EARTH_R_KM = 6371.0088;
 function haversineKm(lat1, lon1, lat2, lon2) {
@@ -53,7 +53,10 @@ function median(arr) {
 //   model.byRouteBucket[route|bucket]
 // Then collapse each bucket to its median.
 async function buildCrossDayModel({ onProgress = null } = {}) {
-  const dates = listDates();
+  // listDates() is newest-first; cap the window so the raw accumulators
+  // (every lat/lon kept until the median finalize) stay bounded as history
+  // grows. See CROSS_DAY_MODEL_MAX_DAYS in config.js.
+  const dates = listDates().slice(0, MODEL_MAX_DAYS);
   const byBusRouteBucketRaw = new Map();
   const byRouteBucketRaw = new Map();
   const byBusBucketRaw = new Map(); // tier 3: (bus_id, bucket) for unknown-route buses

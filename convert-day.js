@@ -78,7 +78,9 @@ async function convertDayToParquet(klDateStr) {
   // Lazy-load so the module is only required when actually converting.
   const parquet = require("@dsnp/parquetjs");
   const outPath = path.join(DATA_DIR, `${klDateStr}.parquet`);
-  const tmpPath = `${outPath}.tmp`;
+  // Unique per invocation — see augment-jsonl.js: makes concurrent-writer
+  // collisions non-destructive (last rename wins instead of interleaved file).
+  const tmpPath = `${outPath}.${process.pid}.${Date.now()}.tmp`;
 
   const rows = await readJsonlRows(jsonlPath);
   if (rows.length === 0) {
