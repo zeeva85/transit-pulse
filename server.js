@@ -154,9 +154,18 @@ app.get(["/", "/index.html"], (_req, res) => {
 });
 
 app.get("/privacy", (_req, res) => {
+  // Same ?v=<git-sha> rewrite as index.html — static .js is served with a
+  // 1-year immutable Cache-Control, so the unversioned /theme-toggle.js
+  // reference here would pin returning visitors to a stale copy forever.
+  const html = fs
+    .readFileSync(path.join(__dirname, "public", "privacy.html"), "utf8")
+    .replace(
+      /(<(?:link|script)[^>]+(?:href|src)=")(\.?\/)?(\w[\w\-.]*\.(?:css|js))(")/g,
+      (_, prefix, _dot, file, suffix) => `${prefix}/${file}?v=${BUILD_VERSION}${suffix}`
+    );
   res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
   res.setHeader("Content-Type", "text/html; charset=utf-8");
-  res.sendFile(path.join(__dirname, "public", "privacy.html"));
+  res.send(html);
 });
 
 // CSS/JS assets: cache forever — safe because index.html now references them
@@ -483,7 +492,7 @@ function recordPositionAndComputeSpeed(busId, lat, lon, tMs, speedRaw, nowMs, pr
 // ──────────────────────────────────────────────────────────────────────────
 
 let feedCache = { ts: 0, buses: [] };
-let fetchInFlight = false;
+let fetchInFlight = null; // in-flight fetch promise — concurrent callers share it
 let feedFailureCount = 0;
 let feedSuccessCount = 0;
 let feedEmptyCount = 0;
@@ -682,10 +691,17 @@ async function fetchFeed(cacheMs = FEED_CACHE_BASE_MS) {
   // Single-flight guard — the background polling interval and HTTP handlers can
   // both call fetchFeed concurrently. Since fetchFeed is async (awaits network),
   // two instances can interleave and corrupt shared state (prevPositions, EKF).
-  // When a fetch is already in flight, return the current cache immediately.
-  if (fetchInFlight) return feedCache.buses;
-  fetchInFlight = true;
+  // Concurrent callers now SHARE the in-flight promise instead of receiving
+  // the possibly-empty stale cache — at cold start, the second of two
+  // concurrent first requests used to render "0 buses" for a full poll cycle.
+  if (fetchInFlight) return fetchInFlight;
+  fetchInFlight = fetchFeedInner(now).finally(() => {
+    fetchInFlight = null;
+  });
+  return fetchInFlight;
+}
 
+async function fetchFeedInner(now) {
   try {
 
   // Day-rollover hook: when this fetch crosses KL midnight, kick off
@@ -883,7 +899,7 @@ async function fetchFeed(cacheMs = FEED_CACHE_BASE_MS) {
       age_seconds: pb.age_seconds,
       trail: pb._trail,
       sparkline_bins: serializeSparkline(sparklineHistory.get(pb.bus_id)),
-      snapped_trail: snapper.snapTrail(pb._trail, pb.route),
+      snapped_trail: snapper.snapTrail(pb._trail, pb.route, pb.bus_id),
     });
   }
 
@@ -911,8 +927,6 @@ async function fetchFeed(cacheMs = FEED_CACHE_BASE_MS) {
     lastFeedError = err.message || String(err);
     lastFeedFailureMs = Date.now();
     throw err;
-  } finally {
-    fetchInFlight = false;
   }
 }
 
@@ -1401,11 +1415,14 @@ app.post("/api/maintenance/run", requireAdmin, express.json({ limit: "16kb" }), 
     // The cross-day model only consumes the most recent N days (memory cap —
     // see CROSS_DAY_MODEL_MAX_DAYS in config.js); the unknown accumulator
     // still sees every date. listDates() is newest-first.
+    const today = klDate(Date.now());
     const modelDates = new Set(
-      dates.slice(0, config.CROSS_DAY_MODEL_MAX_DAYS).map((d) => d.date)
+      dates
+        .filter((d) => d.date !== today)
+        .slice(0, config.CROSS_DAY_MODEL_MAX_DAYS)
+        .map((d) => d.date)
     );
     let totalRows = 0;
-    const today = klDate(Date.now());
     for (let i = 0; i < dates.length; i++) {
       const d = dates[i];
       // Skip today's in-progress data entirely — Python parity: both
@@ -1611,15 +1628,36 @@ app.post("/api/data/:date", requireAdmin,
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       return res.status(400).json({ error: "date must be YYYY-MM-DD" });
     }
-    const outPath = path.join(DATA_DIR, `${date}.parquet`);
-    try {
-      fs.writeFileSync(outPath, req.body);
-      console.log(`[upload] ${date}.parquet written (${req.body.length} bytes)`);
-      res.json({ ok: true, date, bytes: req.body.length });
-    } catch (err) {
-      console.error(`[upload] ${date} failed:`, err.message);
-      res.status(500).json({ error: "Write failed" });
+    // Validate parquet magic bytes BEFORE persisting — a malformed upload
+    // (the upload-data.sh UTC foot-gun shipped JSONL bytes as .parquet to
+    // this exact endpoint and masked 2026-06-10 for two days) silently
+    // overwrites a real day's file with garbage.
+    const body = req.body;
+    const isParquet =
+      Buffer.isBuffer(body) &&
+      body.length >= 8 &&
+      body.subarray(0, 4).toString() === "PAR1" &&
+      body.subarray(-4).toString() === "PAR1";
+    if (!isParquet) {
+      return res.status(400).json({ error: "body is not a parquet file (PAR1 magic missing)" });
     }
+    const outPath = path.join(DATA_DIR, `${date}.parquet`);
+    const tmpPath = `${outPath}.${process.pid}.${Date.now()}.upload.tmp`;
+    // Async + tmp/rename: the old synchronous 50 MB writeFileSync blocked the
+    // event loop, and a failed write could leave a truncated file at the
+    // final path.
+    fs.promises
+      .writeFile(tmpPath, body)
+      .then(() => {
+        fs.renameSync(tmpPath, outPath);
+        console.log(`[upload] ${date}.parquet written (${body.length} bytes)`);
+        res.json({ ok: true, date, bytes: body.length });
+      })
+      .catch((err) => {
+        try { fs.unlinkSync(tmpPath); } catch { /* ignore */ }
+        console.error(`[upload] ${date} failed:`, err.message);
+        res.status(500).json({ error: "Write failed" });
+      });
   }
 );
 

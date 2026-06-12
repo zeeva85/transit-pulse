@@ -49,25 +49,6 @@ function toDouble(v) {
   return Number.isFinite(n) ? n : null;
 }
 
-async function readJsonlRows(file) {
-  const rows = [];
-  await new Promise((resolve, reject) => {
-    const stream = fs.createReadStream(file, { encoding: "utf8" });
-    const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
-    rl.on("line", (line) => {
-      if (!line.trim()) return;
-      try {
-        rows.push(normalizeRow(JSON.parse(line)));
-      } catch {
-        /* skip malformed lines */
-      }
-    });
-    rl.on("close", resolve);
-    rl.on("error", reject);
-  });
-  return rows;
-}
-
 // Convert busjs/data/<klDateStr>.jsonl → busjs/data/<klDateStr>.parquet.
 // Deletes the JSONL after a successful write.
 // Returns { rows, size_bytes } or null if no JSONL exists for that date.
@@ -82,16 +63,25 @@ async function convertDayToParquet(klDateStr) {
   // collisions non-destructive (last rename wins instead of interleaved file).
   const tmpPath = `${outPath}.${process.pid}.${Date.now()}.tmp`;
 
-  const rows = await readJsonlRows(jsonlPath);
-  if (rows.length === 0) {
-    fs.unlinkSync(jsonlPath);
-    return { rows: 0, size_bytes: 0 };
-  }
-
+  // Stream line-by-line instead of materializing every row object first —
+  // the whole-day array held ~50-100k objects (tens of MB) at exactly the
+  // moment (midnight rollover) the cross-day rebuild already peaks memory.
+  // The awaited appendRow provides natural backpressure.
   const schema = buildSchema(parquet);
   const writer = await parquet.ParquetWriter.openFile(schema, tmpPath);
+  let rowCount = 0;
 
-  for (const r of rows) {
+  const stream = fs.createReadStream(jsonlPath, { encoding: "utf8" });
+  const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
+  for await (const line of rl) {
+    if (!line.trim()) continue;
+    let r;
+    try {
+      r = normalizeRow(JSON.parse(line));
+    } catch {
+      continue; /* skip malformed lines */
+    }
+    rowCount += 1;
     await writer.appendRow({
       bus_id:           String(r.bus_id || ""),
       route:            String(r.route || "Unknown"),
@@ -115,6 +105,16 @@ async function convertDayToParquet(klDateStr) {
     });
   }
 
+  // Empty day (zero parseable rows): keep the old semantics — delete the
+  // JSONL, write no parquet. The writer was already opened against the tmp
+  // path, so close it defensively and remove the tmp.
+  if (rowCount === 0) {
+    try { await writer.close(); } catch { /* empty writer may throw */ }
+    try { fs.unlinkSync(tmpPath); } catch { /* ignore */ }
+    fs.unlinkSync(jsonlPath);
+    return { rows: 0, size_bytes: 0 };
+  }
+
   await writer.close();
   // Atomic replace.
   fs.renameSync(tmpPath, outPath);
@@ -129,15 +129,16 @@ async function convertDayToParquet(klDateStr) {
   // null-position rows (precedent: 2026-01-27's 12k NaN lat/lon rows).
   let readBack = -1;
   try {
-    const { parquetReadObjects } = await import("hyparquet");
-    const buf = fs.readFileSync(outPath);
-    const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+    // Full single-column decode (not just footer metadata) — a truncated
+    // data section behind an intact footer must fail verification too.
+    const { parquetReadObjects, asyncBufferFromFile } = await import("hyparquet");
+    const ab = await asyncBufferFromFile(outPath);
     const verifyRows = await parquetReadObjects({ file: ab, columns: ["bus_id"] });
     readBack = verifyRows.length;
   } catch (err) {
     console.error(`[convert] readback of ${outPath} failed:`, err.message);
   }
-  if (readBack !== rows.length) {
+  if (readBack !== rowCount) {
     // Move the bad parquet aside (kept for forensics as .bad) — it must not
     // stay at the .parquet path, where loadDate would prefer it and a
     // readable-but-short file would silently shadow the intact JSONL.
@@ -148,13 +149,13 @@ async function convertDayToParquet(klDateStr) {
       try { fs.unlinkSync(outPath); } catch { /* leave it — loadDate's corrupt fallback covers unreadable files */ }
     }
     throw new Error(
-      `parquet verification failed for ${klDateStr}: wrote ${rows.length} rows, read back ${readBack} — JSONL retained, bad file moved to ${path.basename(badPath)}`
+      `parquet verification failed for ${klDateStr}: wrote ${rowCount} rows, read back ${readBack} — JSONL retained, bad file moved to ${path.basename(badPath)}`
     );
   }
   fs.unlinkSync(jsonlPath);
 
   const { size: size_bytes } = fs.statSync(outPath);
-  return { rows: rows.length, size_bytes };
+  return { rows: rowCount, size_bytes };
 }
 
 module.exports = { convertDayToParquet };

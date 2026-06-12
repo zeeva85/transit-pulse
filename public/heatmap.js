@@ -79,9 +79,15 @@
   // temporal. Mirrors Python settings.cluster_hours.
   let hourOrder = null;
 
+  let _containerEl = null;
+
   function mount(containerEl) {
-    if (chart) return;
-    chart = echarts.init(containerEl, null, { renderer: "canvas" });
+    if (_containerEl) return;
+    _containerEl = containerEl;
+    // echarts.init is deferred to onEChartsReady() — the library itself is
+    // lazy-loaded by main.js when the chart sections scroll near the
+    // viewport. refresh() no-ops until `chart` exists.
+    if (window.echarts) chart = echarts.init(containerEl, null, { renderer: "canvas" });
     modeEl = document.getElementById("heatmap-mode");
     anchorEl = document.getElementById("heatmap-anchor");
     stackEl = document.getElementById("heatmap-stack");
@@ -650,5 +656,12 @@
     if (chart) refresh();
   }
 
-  window.busHeatmap = { mount, refresh, setMode, setClusters, setHourOrder, setDate };
+  // Called by main.js once the lazily-loaded echarts library is available.
+  function onEChartsReady() {
+    if (chart || !_containerEl || !window.echarts) return;
+    chart = echarts.init(_containerEl, null, { renderer: "canvas" });
+    refresh();
+  }
+
+  window.busHeatmap = { mount, refresh, setMode, setClusters, setHourOrder, setDate, onEChartsReady };
 })();

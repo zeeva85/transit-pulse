@@ -17,7 +17,13 @@
   <link rel="preconnect" href="https://unpkg.com" />
   <link rel="preconnect" href="https://cdn.jsdelivr.net" />
   <link rel="preconnect" href="https://basemaps.cartocdn.com" crossorigin />
-  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" />
+  <!-- Self-hosted (vendored from maplibre-gl@3.6.2, fully self-contained —
+       data-URI icons only): the third-party stylesheet was the first
+       render-blocking resource, costing a cold DNS+TLS round trip to unpkg
+       before first paint. Served same-origin it also rides the ?v=<git-sha>
+       immutable-cache scheme. Keep in lockstep with the maplibre-gl.js
+       version below when upgrading. -->
+  <link rel="stylesheet" href="./maplibre-gl.css" />
   <link rel="stylesheet" href="./style.css" />
 </head>
 <body>
@@ -48,12 +54,12 @@
         <strong id="bus-count">—</strong><span class="hstat-label">buses</span>
         <strong id="route-count">—</strong><span class="hstat-label">routes</span>
       </div>
-      <button id="mobile-sidebar-btn" class="hamburger-btn" type="button" title="Filters &amp; controls">&#8942;</button>
-      <button id="theme-toggle" class="theme-toggle-btn" type="button" title="Toggle light/dark mode">
-        <svg id="icon-sun" viewBox="0 0 24 24" width="16" height="16" fill="#FFD60A" stroke="#FFD60A" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
-        <svg id="icon-moon" viewBox="0 0 24 24" width="16" height="16" fill="#7dd3fc" stroke="#7dd3fc" stroke-width="2" stroke-linecap="round" style="display:none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      <button id="mobile-sidebar-btn" class="hamburger-btn" type="button" title="Filters &amp; controls" aria-label="Open filters and controls">&#8942;</button>
+      <button id="theme-toggle" class="theme-toggle-btn" type="button" title="Toggle light/dark mode" aria-label="Toggle light and dark mode">
+        <svg id="icon-sun" aria-hidden="true" viewBox="0 0 24 24" width="16" height="16" fill="#FFD60A" stroke="#FFD60A" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        <svg id="icon-moon" aria-hidden="true" viewBox="0 0 24 24" width="16" height="16" fill="#7dd3fc" stroke="#7dd3fc" stroke-width="2" stroke-linecap="round" style="display:none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
       </button>
-      <button id="hamburger-btn" class="hamburger-btn" type="button">&#9776;</button>
+      <button id="hamburger-btn" class="hamburger-btn" type="button" aria-label="Open menu">&#9776;</button>
     </div>
     <div id="bus-day-road" class="bus-day-road">
       <div id="bus-day-fill" class="bus-day-fill"></div>
@@ -135,9 +141,9 @@
       <div id="date-calendar" class="date-calendar" hidden>
         <button id="date-cal-live" class="date-cal-live-btn" type="button">Today (live)</button>
         <div class="date-cal-nav">
-          <button id="date-cal-prev" class="date-cal-nav-btn" type="button">&#8249;</button>
+          <button id="date-cal-prev" class="date-cal-nav-btn" type="button" aria-label="Previous month">&#8249;</button>
           <span id="date-cal-title" class="date-cal-title"></span>
-          <button id="date-cal-next" class="date-cal-nav-btn" type="button">&#8250;</button>
+          <button id="date-cal-next" class="date-cal-nav-btn" type="button" aria-label="Next month">&#8250;</button>
         </div>
         <div class="date-cal-weekdays">
           <span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span>
@@ -438,7 +444,7 @@
 <script src="/config.js"></script>
 <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
   <script src="https://unpkg.com/deck.gl@9.0.32/dist.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+  <!-- echarts is lazy-loaded by main.js when the chart sections scroll into view -->
   <script src="./heatmap-bins.js"></script>
   <script src="./heatmap.js"></script>
   <script src="./cluster-palette.js"></script>

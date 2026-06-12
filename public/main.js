@@ -1024,7 +1024,22 @@ function stopPulseAnimation() {
   if (pulseRafId) { cancelAnimationFrame(pulseRafId); pulseRafId = null; }
 }
 
+// RAF-debounced: ~12 different controls call rebuildLayers directly, and a
+// quick toggle of two controls (e.g. clustering + trail mode) used to issue
+// two full deck.gl layer rebuilds back-to-back. Coalescing into the next
+// animation frame keeps every call site unchanged while guaranteeing at most
+// one rebuild per frame.
+let _rebuildQueued = false;
 function rebuildLayers() {
+  if (_rebuildQueued) return;
+  _rebuildQueued = true;
+  requestAnimationFrame(() => {
+    _rebuildQueued = false;
+    rebuildLayersNow();
+  });
+}
+
+function rebuildLayersNow() {
   if (!deckOverlay) return;
 
   let visibleBuses = state.showStationary
@@ -2084,8 +2099,52 @@ function updateBusArtStatus() {
   }
 }
 
+// ECharts lazy loader — the ~335 KB gz library only powers the heatmap and
+// timeline charts, all below the fold. It loads when those sections scroll
+// near the viewport (observer below) or when a bus is selected
+// (timeline-chart.js triggers this from its render path). Idempotent.
+let _echartsPromise = null;
+window.__loadECharts = function () {
+  if (window.echarts) return Promise.resolve();
+  if (_echartsPromise) return _echartsPromise;
+  _echartsPromise = new Promise((resolve, reject) => {
+    const sc = document.createElement("script");
+    sc.src = "https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js";
+    sc.onload = () => resolve();
+    sc.onerror = (e) => {
+      _echartsPromise = null; // allow retry on a later trigger
+      reject(e);
+    };
+    document.head.appendChild(sc);
+  }).then(() => {
+    if (window.busHeatmap && window.busHeatmap.onEChartsReady) {
+      window.busHeatmap.onEChartsReady();
+    }
+    renderSelectedBusTimeline();
+  });
+  return _echartsPromise;
+};
+
 async function start() {
   startPulseAnimation();
+  // Load ECharts when the chart sections approach the viewport.
+  const lazySections = ["heatmap-section", "timeline-section"]
+    .map((id) => document.getElementById(id))
+    .filter(Boolean);
+  if ("IntersectionObserver" in window && lazySections.length > 0) {
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          io.disconnect();
+          window.__loadECharts().catch(() => {});
+        }
+      },
+      { rootMargin: "300px" }
+    );
+    for (const el of lazySections) io.observe(el);
+  } else {
+    window.__loadECharts().catch(() => {});
+  }
   if (window.busHeatmap) {
     window.busHeatmap.mount(document.getElementById("heatmap-chart"));
   }

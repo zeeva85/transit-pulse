@@ -30,8 +30,8 @@
     onSelectBus = onSelect;
     onSelectBusBottom = onSelectBottom || onSelect;
 
-    chart = echarts.init(chartEl, null, { renderer: "canvas" });
-    chartBottom = echarts.init(chartElBottom, null, { renderer: "canvas" });
+    // echarts.init deferred to ensureCharts() — the library is lazy-loaded.
+    ensureCharts();
     window.addEventListener("resize", () => {
       if (chart) chart.resize();
       if (chartBottom) chartBottom.resize();
@@ -180,6 +180,16 @@
     };
   }
 
+  // Init the two chart instances once the lazily-loaded echarts library is
+  // available. Safe to call repeatedly.
+  function ensureCharts() {
+    if (chart) return true;
+    if (!window.echarts || !chartEl || !chartElBottom) return false;
+    chart = echarts.init(chartEl, null, { renderer: "canvas" });
+    chartBottom = echarts.init(chartElBottom, null, { renderer: "canvas" });
+    return true;
+  }
+
   // Server-binned live path: same 13-min bins, computed server-side.
   // `corrected` is a real per-bin history — an upgrade over the old client
   // path, where speedFromTrailPoint (main.js) had no "corrected" case and
@@ -222,6 +232,16 @@
       statsElBottom.hidden = true;
       emptyElBottom.style.display = "block";
       emptyElBottom.textContent = msg;
+      return;
+    }
+
+    // A real render with data IS user intent (a bus is selected) — load
+    // echarts now if it isn't in yet, then re-render with the same args.
+    // The empty-state paths above are pure DOM and never need the library.
+    if (!ensureCharts()) {
+      if (window.__loadECharts) {
+        window.__loadECharts().then(() => render(bus, modeLabel, getSpeed, mode)).catch(() => {});
+      }
       return;
     }
 

@@ -253,84 +253,122 @@ function createSnapper(shapesById, shapesByRoute) {
   const r5 = (x) => Math.round(x * 1e5) / 1e5;
   const roundPath = (path) => path.map(([lon, lat]) => [r5(lon), r5(lat)]);
 
-  function snapTrail(trail, routeLabel) {
+  // Snap one consecutive pair. Returns { entry, nextShapeId }: `entry` is the
+  // renderer-facing object, `nextShapeId` seeds the Pass-18 stickiness chain
+  // for the following pair.
+  function snapOnePair(p1, p2, candidates, prevShapeId) {
+    // Index-aligned gap for invalid coords: the old code `continue`d without
+    // pushing, which shifted every later entry against the wrong trail points
+    // (wrong segment colors / period filtering); NaN also slipped past the
+    // old `== null` guard and emitted chords with NaN vertices.
+    if (
+      !Number.isFinite(p1.lat) || !Number.isFinite(p1.lon) ||
+      !Number.isFinite(p2.lat) || !Number.isFinite(p2.lon)
+    ) {
+      return { entry: { path: null, source: "gap" }, nextShapeId: prevShapeId };
+    }
+
+    // Fast path: both points have the same precomputed snap_shape_id (set by
+    // Python snap_augment_parquet or JS augmentation). Slice the polyline
+    // directly — no distance projection needed.
+    if (
+      p1.snap_shape_id && p2.snap_shape_id &&
+      p1.snap_shape_id === p2.snap_shape_id &&
+      p1.snap_cumdist != null && p2.snap_cumdist != null
+    ) {
+      const poly = shapesById[p1.snap_shape_id];
+      const geom = getGeom(p1.snap_shape_id);
+      if (poly && geom) {
+        const dLo = Math.min(p1.snap_cumdist, p2.snap_cumdist);
+        const dHi = Math.max(p1.snap_cumdist, p2.snap_cumdist);
+        const sub = slicePolyline(poly, geom.cumdist, dLo, dHi);
+        const reversed = p1.snap_cumdist > p2.snap_cumdist;
+        if (sub.length >= 2) {
+          return {
+            entry: { path: roundPath(reversed ? sub.reverse() : sub), source: "on_route" },
+            nextShapeId: p1.snap_shape_id,
+          };
+        }
+      }
+    }
+
+    let snapped = null;
+    if (candidates.length > 0) {
+      // Use a more generous threshold for the bus's own route shapes — GPS
+      // noise in KL's urban canyons can push readings 200–400m from the
+      // GTFS centreline.  Cross-route fallback keeps the tighter 200m so we
+      // don't snap to a parallel road on a different line.
+      snapped = snapPair(p1.lon, p1.lat, p2.lon, p2.lat, candidates, prevShapeId, SNAP_OWN_ROUTE_THRESHOLD_M);
+    }
+    // Cross-route fallback when the bus's assigned route's shapes don't
+    // match (off-route GPS, route reassignment, learned-shape buses, …).
+    // Recovers about 4–5% of pairs on a typical day.
+    let crossRoute = false;
+    if (!snapped) {
+      const cross = snapPairCrossRoute(p1.lon, p1.lat, p2.lon, p2.lat);
+      if (cross) {
+        snapped = cross;
+        crossRoute = true;
+      }
+    }
+    if (snapped) {
+      return {
+        entry: { path: roundPath(snapped.path), source: crossRoute ? "cross_route" : "on_route" },
+        nextShapeId: snapped.shape_id,
+      };
+    }
+    const chordKm = haversineKm(p1.lat, p1.lon, p2.lat, p2.lon);
+    if (chordKm * 1000 > MAX_FALLBACK_CHORD_M) {
+      return { entry: { path: null, source: "gap" }, nextShapeId: prevShapeId };
+    }
+    return {
+      entry: {
+        path: roundPath([
+          [p1.lon, p1.lat],
+          [p2.lon, p2.lat],
+        ]),
+        source: "fallback",
+      },
+      nextShapeId: prevShapeId,
+    };
+  }
+
+  // Incremental per-bus cache for the LIVE path. A live trail is a 20-point
+  // sliding window that shifts by at most one point per 30 s tick, so 18-19
+  // of the per-pair snaps were recomputed byte-identically every tick across
+  // the whole fleet. Each pair result is keyed by its two points' time+lat
+  // and reused; `nextShapeId` is stored alongside so the Pass-18 stickiness
+  // chain behaves like one continuous stream across window slides (the chain
+  // seed for reused pairs is the seed they were ORIGINALLY computed with —
+  // i.e. the full history including since-evicted pairs, which is strictly
+  // more informed than recomputing from a truncated window). Only entries in
+  // the current window are kept per bus; a route-label change discards the
+  // bus's cache; a GTFS reload rebuilds the snapper and drops everything.
+  const trailCache = new Map(); // cacheKey -> { routeLabel, entries: Map }
+
+  function snapTrail(trail, routeLabel, cacheKey = null) {
     const out = [];
     if (!trail || trail.length < 2) return out;
     const candidates = shapesByRoute[routeLabel] || [];
-    // Track the previously-chosen shape across the trail so the Pass-18
-    // stickiness rule can suppress spurious outbound↔inbound flipping when
-    // both variants run along the same road.
+    const prior = cacheKey != null ? trailCache.get(cacheKey) : null;
+    const reuse = prior && prior.routeLabel === routeLabel ? prior.entries : null;
+    const fresh = cacheKey != null ? new Map() : null;
     let prevShapeId = null;
     for (let i = 0; i < trail.length - 1; i++) {
       const p1 = trail[i];
       const p2 = trail[i + 1];
-      if (p1.lat == null || p1.lon == null || p2.lat == null || p2.lon == null) {
-        continue;
+      let k = null;
+      let r = null;
+      if (fresh) {
+        k = `${p1.time},${p1.lat}|${p2.time},${p2.lat}`;
+        if (reuse) r = reuse.get(k);
       }
-
-      // Fast path: both points have the same precomputed snap_shape_id (set by
-      // Python snap_augment_parquet or JS augmentation). Slice the polyline
-      // directly — no distance projection needed.
-      if (
-        p1.snap_shape_id && p2.snap_shape_id &&
-        p1.snap_shape_id === p2.snap_shape_id &&
-        p1.snap_cumdist != null && p2.snap_cumdist != null
-      ) {
-        const poly = shapesById[p1.snap_shape_id];
-        const geom = getGeom(p1.snap_shape_id);
-        if (poly && geom) {
-          const dLo = Math.min(p1.snap_cumdist, p2.snap_cumdist);
-          const dHi = Math.max(p1.snap_cumdist, p2.snap_cumdist);
-          const sub = slicePolyline(poly, geom.cumdist, dLo, dHi);
-          const reversed = p1.snap_cumdist > p2.snap_cumdist;
-          if (sub.length >= 2) {
-            prevShapeId = p1.snap_shape_id;
-            out.push({ path: roundPath(reversed ? sub.reverse() : sub), source: "on_route" });
-            continue;
-          }
-        }
-      }
-
-      let snapped = null;
-      if (candidates.length > 0) {
-        // Use a more generous threshold for the bus's own route shapes — GPS
-        // noise in KL's urban canyons can push readings 200–400m from the
-        // GTFS centreline.  Cross-route fallback keeps the tighter 200m so we
-        // don't snap to a parallel road on a different line.
-        snapped = snapPair(p1.lon, p1.lat, p2.lon, p2.lat, candidates, prevShapeId, SNAP_OWN_ROUTE_THRESHOLD_M);
-      }
-      // Cross-route fallback when the bus's assigned route's shapes don't
-      // match (off-route GPS, route reassignment, learned-shape buses, …).
-      // Recovers about 4–5% of pairs on a typical day.
-      let crossRoute = false;
-      if (!snapped) {
-        const cross = snapPairCrossRoute(p1.lon, p1.lat, p2.lon, p2.lat);
-        if (cross) {
-          snapped = cross;
-          crossRoute = true;
-        }
-      }
-      if (snapped) {
-        prevShapeId = snapped.shape_id;
-        out.push({
-          path: roundPath(snapped.path),
-          source: crossRoute ? "cross_route" : "on_route",
-        });
-      } else {
-        const chordKm = haversineKm(p1.lat, p1.lon, p2.lat, p2.lon);
-        if (chordKm * 1000 > MAX_FALLBACK_CHORD_M) {
-          out.push({ path: null, source: "gap" });
-        } else {
-          out.push({
-            path: roundPath([
-              [p1.lon, p1.lat],
-              [p2.lon, p2.lat],
-            ]),
-            source: "fallback",
-          });
-        }
-      }
+      if (!r) r = snapOnePair(p1, p2, candidates, prevShapeId);
+      prevShapeId = r.nextShapeId;
+      out.push(r.entry);
+      if (fresh) fresh.set(k, r);
     }
+    if (fresh) trailCache.set(cacheKey, { routeLabel, entries: fresh });
     return out;
   }
 

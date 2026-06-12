@@ -16,7 +16,7 @@
 const fs = require("fs");
 const path = require("path");
 const readline = require("readline");
-const { STORE_BUFFER_FLUSH_MS, STORE_STREAM_IDLE_CLOSE_MS } = require("./config");
+const { STORE_STREAM_IDLE_CLOSE_MS } = require("./config");
 
 const DATA_DIR = path.join(__dirname, "data");
 // Read-only source of historical parquet files written by the Python app.
@@ -137,16 +137,23 @@ function appendTick(busId, route, tMs, lat, lon, speeds, trustScore = null, weat
   getStream(date).write(JSON.stringify(row) + "\n");
 }
 
-function flushAll() {
-  for (const w of writers.values()) {
-    try {
-      w.stream.write(""); // no-op but pokes the buffered write
-    } catch {
-      /* ignore */
-    }
+// Graceful-shutdown flush: end every open append stream so queued writes
+// drain to disk before the process exits. Without this, every Railway
+// redeploy silently dropped whatever rows sat in the stream buffers.
+// (The old flushAll-every-2s mechanism wrote an empty string, which flushes
+// nothing — fs.WriteStream has no time-based coalescing buffer; it was dead
+// code giving false durability confidence.)
+let shuttingDown = false;
+function closeAllWriters() {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  for (const [date, w] of writers) {
+    try { w.stream.end(); } catch { /* ignore */ }
+    writers.delete(date);
   }
 }
-setInterval(flushAll, STORE_BUFFER_FLUSH_MS).unref();
+process.on("SIGTERM", () => { closeAllWriters(); process.exit(0); });
+process.on("SIGINT", () => { closeAllWriters(); process.exit(0); });
 
 // Normalize a JSONL row in-place so legacy files (written before the
 // Python-schema rename) load alongside new ones. Only the four renamed
@@ -446,7 +453,9 @@ function storeStats() {
     parquet_days: parquetDays,
     bytes_stored: totalBytes,
     newest_date: dates[0] ? dates[0].date : null,
-    history_dir: HISTORY_DIR,
+    // history_dir (an absolute server filesystem path) was removed from this
+    // payload — /api/health is unauthenticated and the path aided traversal
+    // crafting + deployment fingerprinting.
   };
 }
 

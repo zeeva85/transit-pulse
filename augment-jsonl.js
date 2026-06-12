@@ -17,6 +17,7 @@
 const fs = require("fs");
 const path = require("path");
 const readline = require("readline");
+const { once } = require("events");
 const { normalizeRow } = require("./store");
 const { adjustRow } = require("./cross-day");
 
@@ -164,7 +165,10 @@ async function augmentJsonlFile(date, model, snapper, shapesByRoute, inferredByB
       augmented.snap_cumdist = null;
     }
 
-    out.write(JSON.stringify(augmented) + "\n");
+    // Honor backpressure — on a slow volume the entire rewritten ~35 MB file
+    // otherwise piles up in the stream's in-memory buffer on top of the rows
+    // array this function already holds.
+    if (!out.write(JSON.stringify(augmented) + "\n")) await once(out, "drain");
   }
 
   await new Promise((resolve) => out.end(resolve));

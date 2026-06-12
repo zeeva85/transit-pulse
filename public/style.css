@@ -335,6 +335,11 @@ body.light-mode .period-btn:hover { border-color: #0969da; color: #0969da; }
 
 .date-calendar {
   position: fixed;
+  /* Fallback position — JS sets inline top/left when opening; without a
+     fallback, a JS positioning failure renders the calendar invisibly at
+     0,0 behind the header. */
+  top: 80px;
+  left: 16px;
   z-index: 1000;
   background: #161b22;
   border: 1px solid #4a90d9;
@@ -552,6 +557,10 @@ body.light-mode .date-cal-day.selected { background: #c0deff !important; color: 
   outline: none;
 }
 .bus-table-search-row input:focus {
+  /* visible focus ring — a 1px border-color change alone is invisible to
+     low-vision/keyboard users (WCAG 2.4.7) */
+  outline: 2px solid #79b8ff;
+  outline-offset: 1px;
   border-color: #79b8ff;
 }
 .bus-table-search-count {
@@ -787,9 +796,9 @@ body.map-dimmed #map canvas:not(.maplibregl-canvas) {
   border-radius: 6px;
 }
 .timeline-stats {
+  /* gap/margin live in the later .timeline-stats rule (line ~1067), which
+     overrides this one — declarations here for those properties are dead. */
   display: flex;
-  gap: 16px;
-  margin-bottom: 10px;
   font-size: 13px;
 }
 .timeline-stats .stat {
@@ -1298,7 +1307,8 @@ body.light-mode .spd-modal-card p:not(.meta) { color: #1c2128; }
   font-size: 12px;
 }
 #trip-origin:focus, #trip-destination:focus {
-  outline: none;
+  outline: 2px solid #388bfd;
+  outline-offset: 1px;
   border-color: #388bfd;
 }
 body.light-mode #trip-origin, body.light-mode #trip-destination {
@@ -1377,7 +1387,7 @@ body.light-mode #trip-origin:focus, body.light-mode #trip-destination:focus {
   #map-legend         { flex-wrap: wrap; max-width: 160px; gap: 3px; font-size: 9px; }
 
   /* ── Settings panel: full width ── */
-  .hamburger-panel { width: 100%; left: 0; }
+  .hamburger-panel { width: 100%; left: 0; right: auto; border-left: none; }
 
   /* ── Bus table ── */
   table.bus-table { font-size: 11px; }

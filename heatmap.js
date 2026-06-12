@@ -78,12 +78,18 @@ function makeAccumulator() {
       perHour = new Map();
       busSamples.set(busId, perHour);
     }
-    let perMode = perHour.get(hour);
+    // Cell key is (hour, route) — Python groups by [bus_id, route, hour]
+    // (timeline.py:515-517), so a bus reassigned mid-hour (WVJ8172 daily;
+    // Unknown→trip_id flapping) contributes to BOTH routes. Keying by hour
+    // alone migrated the whole hour's samples to whichever route was seen
+    // last.
+    const r = route || "Unknown";
+    const cellKey = `${hour}|${r}`;
+    let perMode = perHour.get(cellKey);
     if (!perMode) {
-      perMode = { route, raw: [], corrected: [], calc: [], kalman: [], trust: [] };
-      perHour.set(hour, perMode);
+      perMode = { h: hour, route: r, raw: [], corrected: [], calc: [], kalman: [], trust: [] };
+      perHour.set(cellKey, perMode);
     }
-    perMode.route = route;
     for (const m of MODES) {
       const v = speeds[m];
       // <= 200 km/h plausibility filter — Python parity (busapp/ui/
@@ -121,11 +127,11 @@ function makeAccumulator() {
   // accumulator — recordSample cannot append to a collapsed cell.
   function collapse() {
     for (const [, hourMap] of busSamples) {
-      for (const [hour, cell] of hourMap) {
+      for (const [key, cell] of hourMap) {
         if (cell._collapsed) continue;
-        const slim = { route: cell.route, _collapsed: true };
+        const slim = { h: cell.h, route: cell.route, _collapsed: true };
         for (const m of MODES) slim[`${m}_med`] = medianOf(cell[m]);
-        hourMap.set(hour, slim);
+        hourMap.set(key, slim);
       }
     }
   }
@@ -140,7 +146,7 @@ function makeAccumulator() {
     // (historical) cells carry the median precomputed.
     const routeAgg = new Map();
     for (const [, hourMap] of busSamples) {
-      for (const [hour, cell] of hourMap) {
+      for (const [, cell] of hourMap) {
         const m = cell._collapsed ? cell[`${mode}_med`] : medianOf(cell[mode]);
         if (m == null) continue;
         const route = cell.route || "Unknown";
@@ -149,10 +155,10 @@ function makeAccumulator() {
           perHour = new Map();
           routeAgg.set(route, perHour);
         }
-        let bucket = perHour.get(hour);
+        let bucket = perHour.get(cell.h);
         if (!bucket) {
           bucket = [];
-          perHour.set(hour, bucket);
+          perHour.set(cell.h, bucket);
         }
         bucket.push(m);
       }

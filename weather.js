@@ -122,8 +122,28 @@ async function fetchFromNetwork(date) {
 // Main entry point — returns HourlyWeather for a single date string "YYYY-MM-DD".
 // Reads from mem cache → disk cache → network, in that order.
 // Today's date skips both caches (server.js:getCurrentWeather throttles via weatherHourCache).
+// Today's hourly forecast, shared across all callers for a short window —
+// previously EVERY /api/weather?date=today request (each browser widget,
+// every 5 min, per client) made 2 fresh upstream WeatherAPI calls, each with
+// a 15 s timeout. One upstream fetch per TTL window now serves everyone.
+let _todayCache = { date: null, fetchedAt: 0, data: null };
+const TODAY_TTL_MS = 5 * 60_000;
+
 async function getWeatherForDate(date) {
   const today = klDateToday();
+
+  if (date === today) {
+    if (
+      _todayCache.date === today &&
+      _todayCache.data &&
+      Date.now() - _todayCache.fetchedAt < TODAY_TTL_MS
+    ) {
+      return _todayCache.data;
+    }
+    const hourly = await fetchFromNetwork(date);
+    _todayCache = { date: today, fetchedAt: Date.now(), data: hourly };
+    return hourly;
+  }
 
   // 1. Memory cache (past dates only — today is always fetched fresh).
   if (date !== today && memCache.has(date)) return memCache.get(date);
@@ -152,13 +172,17 @@ async function getWeatherForDate(date) {
   return hourly;
 }
 
-// Batch fetch for multiple dates — parallelises network requests.
+// Batch fetch for multiple dates — parallelised in bounded chunks. A cold
+// /api/weather/range used to fire up to 90 simultaneous history.json calls.
 async function getWeatherForDates(dates) {
   const results = new Map();
-  await Promise.all(dates.map(async (d) => {
-    try { results.set(d, await getWeatherForDate(d)); }
-    catch (e) { results.set(d, {}); }
-  }));
+  const CHUNK = 8;
+  for (let i = 0; i < dates.length; i += CHUNK) {
+    await Promise.all(dates.slice(i, i + CHUNK).map(async (d) => {
+      try { results.set(d, await getWeatherForDate(d)); }
+      catch (e) { results.set(d, {}); }
+    }));
+  }
   return results;
 }
 

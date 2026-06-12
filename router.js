@@ -454,30 +454,36 @@ class Router {
 
 // ─── streaming graph write (avoids JSON.stringify peak allocation) ────────────
 
-function writeGraphStreaming(filePath, graph) {
-  return new Promise((resolve, reject) => {
-    const tmp = filePath + ".tmp";
-    const s = fs.createWriteStream(tmp);
+async function writeGraphStreaming(filePath, graph) {
+  const { once } = require("events");
+  const tmp = filePath + ".tmp";
+  const s = fs.createWriteStream(tmp);
+  // Honor backpressure: this function exists to avoid JSON.stringify's peak
+  // allocation for the multi-hundred-MB Malaysia graph, but ignoring the
+  // write() return meant the whole serialized graph piled up in the stream's
+  // in-memory queue anyway when the disk lagged — OOM risk in the exact
+  // FULL_MALAYSIA_GRAPH scenario it was written for.
+  const w = async (chunk) => {
+    if (!s.write(chunk)) await once(s, "drain");
+  };
+  await w('{"nodes":{');
+  let first = true;
+  for (const [id, ll] of Object.entries(graph.nodes)) {
+    await w(`${first ? "" : ","}"${id}":[${ll[0]},${ll[1]}]`);
+    first = false;
+  }
+  await w('},"edges":{');
+  first = true;
+  for (const [id, nbrs] of Object.entries(graph.edges)) {
+    await w(`${first ? "" : ","}"${id}":${JSON.stringify(nbrs)}`);
+    first = false;
+  }
+  await w("}}");
+  await new Promise((resolve, reject) => {
     s.on("error", reject);
-    s.on("finish", () => {
-      fs.rename(tmp, filePath, err => err ? reject(err) : resolve());
+    s.end(() => {
+      fs.rename(tmp, filePath, (err) => (err ? reject(err) : resolve()));
     });
-    s.write('{"nodes":{');
-    let first = true;
-    for (const [id, ll] of Object.entries(graph.nodes)) {
-      if (!first) s.write(",");
-      s.write(`"${id}":[${ll[0]},${ll[1]}]`);
-      first = false;
-    }
-    s.write('},"edges":{');
-    first = true;
-    for (const [id, nbrs] of Object.entries(graph.edges)) {
-      if (!first) s.write(",");
-      s.write(`"${id}":${JSON.stringify(nbrs)}`);
-      first = false;
-    }
-    s.write("}}");
-    s.end();
   });
 }
 

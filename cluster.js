@@ -59,13 +59,6 @@ async function buildFeatureMatrix(anchors = null, date = null) {
   const routes = [...routeSet].sort();
   if (routes.length < 3) return { routes, features: [], hasData: false };
 
-  // Index lookups so we can find each (route, mode) row quickly.
-  const routeIndexByMode = {};
-  for (const mode of MODES) {
-    const idx = {};
-    modeData[mode].routes.forEach((r, i) => (idx[r] = i));
-    routeIndexByMode[mode] = idx;
-  }
   // Pre-bucket cells per (mode, route).
   const cellsByModeRoute = {};
   for (const mode of MODES) {
@@ -354,14 +347,15 @@ async function computeHourOrder({ metric = "euclidean", anchorMode = "physical",
   const numCols = MODES.length * routes.length;
   const features = hours.map(() => new Array(numCols).fill(null));
 
+  // O(1) column lookup — routes.indexOf inside the cells loop was an O(R)
+  // scan per cell (~10k cells × ~80 routes).
+  const colByRoute = new Map(routes.map((r, i) => [r, i]));
   for (let m = 0; m < MODES.length; m++) {
     const mode = MODES[m];
     const md = modeData[mode];
-    const routeIndex = {};
-    md.routes.forEach((r, i) => (routeIndex[r] = i));
     for (const c of md.cells) {
       const route = md.routes[c.r];
-      const colInUnion = routes.indexOf(route);
+      const colInUnion = colByRoute.has(route) ? colByRoute.get(route) : -1;
       if (colInUnion < 0) continue;
       const col = m * routes.length + colInUnion;
       const hourRow = c.h;
