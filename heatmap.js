@@ -36,7 +36,12 @@ function klDate(tMs) {
 
 function pushCapped(arr, value, cap) {
   arr.push(value);
-  while (arr.length > cap) arr.shift();
+  let evicted = 0;
+  while (arr.length > cap) {
+    arr.shift();
+    evicted += 1;
+  }
+  return evicted;
 }
 
 function median(sorted) {
@@ -86,8 +91,10 @@ function makeAccumulator() {
       // per-bus median). The spike carve-out at categorize time only handles
       // the final median, not implausible samples skewing it.
       if (v == null || v < 0 || v > 200) continue;
-      pushCapped(perMode[m], v, SAMPLES_PER_BUSHOUR_CELL);
-      totalSamples += 1;
+      // pushCapped returns how many old samples the cap evicted — subtract
+      // so samples_total reports RETAINED samples, not cumulative pushes
+      // (it overstated severalfold by end of day).
+      totalSamples += 1 - pushCapped(perMode[m], v, SAMPLES_PER_BUSHOUR_CELL);
     }
     if (oldestSampleMs == null || tMs < oldestSampleMs) oldestSampleMs = tMs;
   }
@@ -105,17 +112,36 @@ function makeAccumulator() {
     currentKlDate = klDate(Date.now());
   }
 
+  // Collapse every cell's raw sample arrays into precomputed per-mode
+  // medians. For HISTORICAL accumulators the raw samples are dead weight
+  // after the medians are known — up to 5 modes × 60 floats per (bus, hour)
+  // cell, ~50 MB per cached day; the medians are ~1/60th of that and
+  // buildHeatmap output is bit-identical (anchor/mode changes only re-bin
+  // the median, never re-read samples). NEVER call this on the live
+  // accumulator — recordSample cannot append to a collapsed cell.
+  function collapse() {
+    for (const [, hourMap] of busSamples) {
+      for (const [hour, cell] of hourMap) {
+        if (cell._collapsed) continue;
+        const slim = { route: cell.route, _collapsed: true };
+        for (const m of MODES) slim[`${m}_med`] = medianOf(cell[m]);
+        hourMap.set(hour, slim);
+      }
+    }
+  }
+
   function buildHeatmap({ mode = "trust", anchor = null } = {}) {
     if (!MODES.includes(mode)) throw new Error(`unknown mode: ${mode}`);
     const effAnchor = anchor != null ? anchor : PHYSICAL_ANCHOR[mode];
     const edges = binEdges(mode, effAnchor);
     const spike = SPIKE_THRESHOLD[mode];
 
-    // First stage: per-bus per-hour medians, grouped by route.
+    // First stage: per-bus per-hour medians, grouped by route. Collapsed
+    // (historical) cells carry the median precomputed.
     const routeAgg = new Map();
     for (const [, hourMap] of busSamples) {
       for (const [hour, cell] of hourMap) {
-        const m = medianOf(cell[mode]);
+        const m = cell._collapsed ? cell[`${mode}_med`] : medianOf(cell[mode]);
         if (m == null) continue;
         const route = cell.route || "Unknown";
         let perHour = routeAgg.get(route);
@@ -180,7 +206,7 @@ function makeAccumulator() {
 
   // Expose the internal map so a one-shot historical accumulator can be
   // wrapped by an LRU cache without paying the per-call cost twice.
-  return { recordSample, buildHeatmap, clearAccumulator, accumulatorStats, _busSamples: busSamples };
+  return { recordSample, buildHeatmap, collapse, clearAccumulator, accumulatorStats, _busSamples: busSamples };
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -196,11 +222,20 @@ const historicalCache = new Map();
 
 async function buildHistoricalHeatmap(date, loadDateFn, opts = {}) {
   let acc = historicalCache.get(date);
-  if (!acc) {
+  if (acc) {
+    // Refresh recency — the Map was a FIFO (insertion order), so hopping
+    // between 6+ dates could evict the date the user was actively viewing
+    // while stale early dates survived.
+    historicalCache.delete(date);
+    historicalCache.set(date, acc);
+  } else {
     acc = makeAccumulator();
     let rowCount = 0;
     await loadDateFn(date, (row) => {
-      if (row.lat == null || row.lon == null) return;
+      // Valid in EITHER representation — loadParquetFile now emits raw
+      // lat/lon and adj_* separately; reconstructed rows (NaN raw, valid
+      // adj — e.g. 2026-01-27) must still feed the heatmap.
+      if ((row.lat == null || row.lon == null) && (row.adj_lat == null || row.adj_lon == null)) return;
       acc.recordSample(row.bus_id, row.route, row.time, {
         raw: row.speed,
         calc: row.calculated_speed,
@@ -211,6 +246,9 @@ async function buildHistoricalHeatmap(date, loadDateFn, opts = {}) {
       rowCount += 1;
     });
     if (rowCount === 0) return null;
+    // Past dates are immutable: collapse sample arrays to per-mode medians
+    // before caching (~1/60th the memory; output bit-identical).
+    acc.collapse();
     historicalCache.set(date, acc);
     while (historicalCache.size > HIST_CACHE_LIMIT) {
       const oldest = historicalCache.keys().next().value;

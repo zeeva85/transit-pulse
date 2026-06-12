@@ -169,12 +169,34 @@ function adjustRow(model, row) {
 // One-shot cache wrapper. Cross-day rebuild is expensive (~all stored data);
 // callers go through this so the maintenance UI can force a refresh.
 let _model = null;
-let _modelVersion = 0; // bumps on every (re)build — cache keys depend on it
+let _modelPromise = null; // in-flight build — concurrent callers share ONE scan
+let _modelVersion = 0; // bumps on every (re)build/install — cache keys depend on it
 async function getCrossDayModel({ rebuild = false, onProgress = null } = {}) {
   if (_model && !rebuild) return _model;
-  _model = await buildCrossDayModel({ onProgress });
+  // Cache the PROMISE, not just the resolved value: previously every caller
+  // arriving during the multi-second build started its own duplicate
+  // full-history scan (boot getCrossDayModel + a user's first historical
+  // date-pick = two concurrent scans doubling I/O, CPU and peak memory).
+  if (_modelPromise && !rebuild) return _modelPromise;
+  _modelPromise = buildCrossDayModel({ onProgress })
+    .then((m) => {
+      _model = m;
+      _modelVersion += 1;
+      return m;
+    })
+    .finally(() => {
+      _modelPromise = null; // a failed build can be retried
+    });
+  return _modelPromise;
+}
+
+// Install a model built elsewhere (the maintenance/startup single-pass scan
+// builds one anyway — discarding it left the cache stale until the next
+// midnight rebuild AND meant boot could run two concurrent full scans).
+function setCrossDayModel(model) {
+  if (!model) return;
+  _model = model;
   _modelVersion += 1;
-  return _model;
 }
 
 // Monotonic build counter. Consumers that cache adjustRow-derived output
@@ -200,6 +222,7 @@ function modelStats() {
 module.exports = {
   buildCrossDayModel,
   getCrossDayModel,
+  setCrossDayModel,
   getModelVersion,
   adjustRow,
   modelStats,

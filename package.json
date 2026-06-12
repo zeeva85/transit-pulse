@@ -8,7 +8,7 @@
     "node": ">=18"
   },
   "scripts": {
-    "start": "node server.js",
+    "start": "node --max-old-space-size=380 server.js",
     "dev": "node --max-old-space-size=6144 --watch server.js"
   },
   "dependencies": {

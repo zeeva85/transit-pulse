@@ -214,17 +214,27 @@ async function loadJsonlFile(file, onRow) {
 // for `lat / lon` per Pass-16 cleanup when present. hyparquet returns rows as
 // plain objects with native Date for `time` and nullable numbers for missing
 // values, which maps cleanly.
+// Rows materialized per slice when reading a parquet. Reading a whole day at
+// once held ~100-200 MB of row objects transiently PER FILE — measured 500+
+// MB peak RSS during the cross-day scan, which is what OOM-killed the 512 MB
+// production container at boot/maintenance. 25k rows ≈ tens of MB transient.
+const PARQUET_READ_SLICE = 25_000;
+
 async function loadParquetFile(file, onRow) {
   if (!fs.existsSync(file)) return null;
-  let buf;
+  const { parquetReadObjects, asyncBufferFromFile, parquetMetadataAsync } = await getHyparquet();
+  // asyncBufferFromFile does ranged async reads from an fd — replaces the
+  // old readFileSync + full ArrayBuffer copy, which held 2× the file size in
+  // memory and blocked the event loop for the whole read. Matters most at
+  // midnight rollover / maintenance, when every stored day is loaded
+  // back-to-back on the production container.
+  let ab;
   try {
-    buf = fs.readFileSync(file);
+    ab = await asyncBufferFromFile(file);
   } catch (err) {
     console.warn(`[store] cannot read ${file}: ${err.message}`);
     return null;
   }
-  const { parquetReadObjects } = await getHyparquet();
-  const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
 
   // Ask only for the columns we need — hyparquet honors this and skips the
   // rest, which cuts memory + decode time roughly in half on a typical day.
@@ -251,27 +261,72 @@ async function loadParquetFile(file, onRow) {
   ];
 
   let count = 0;
+  let ranges;
+  try {
+    const meta = await parquetMetadataAsync(ab);
+    // Read ranges aligned to ROW-GROUP boundaries: parquet decodes whole row
+    // groups, so an unaligned slice re-decodes the same group once per
+    // overlapping slice (Python-written files are a single 40k+ row group —
+    // fixed-size slices made those reads slower, not lighter). Aligned
+    // ranges decode every group exactly once while keeping the per-call
+    // object materialization bounded near PARQUET_READ_SLICE rows.
+    ranges = [];
+    let rangeStart = 0;
+    let acc = 0;
+    let pos = 0;
+    for (const g of meta.row_groups) {
+      const n = Number(g.num_rows);
+      acc += n;
+      pos += n;
+      if (acc >= PARQUET_READ_SLICE) {
+        ranges.push([rangeStart, pos]);
+        rangeStart = pos;
+        acc = 0;
+      }
+    }
+    if (pos > rangeStart) ranges.push([rangeStart, pos]);
+  } catch (err) {
+    console.warn(`[store] corrupt parquet ${file}: ${err.message} — skipping`);
+    return null;
+  }
+  for (const [rangeStartRow, rangeEndRow] of ranges) {
   let rows;
   try {
-    // parquetReadObjects buffers the whole file — fine for our ~50k-row days.
-    rows = await parquetReadObjects({ file: ab, columns: wantedColumns });
+    rows = await parquetReadObjects({
+      file: ab,
+      columns: wantedColumns,
+      rowStart: rangeStartRow,
+      rowEnd: rangeEndRow,
+    });
   } catch (err) {
     console.warn(`[store] corrupt parquet ${file}: ${err.message} — skipping`);
     return null;
   }
   for (const r of rows) {
     if (r.bus_id == null) continue;
-    // Prefer adj_lat/adj_lon when present (Pass-16 cleanup).
-    const lat = r.adj_lat != null ? r.adj_lat : r.lat;
-    const lon = r.adj_lon != null ? r.adj_lon : r.lon;
-    if (lat == null || lon == null || !Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+    // Emit BOTH representations — raw lat/lon AND adj_lat/adj_lon — instead
+    // of merging adj into lat/lon. Merging meant the cross-day model and the
+    // unknown-route accumulator consumed model-substituted positions as raw
+    // evidence (a self-reinforcing feedback loop; Python builds from raw),
+    // and buildHistoricalBuses' adj-preference branch could never fire for
+    // parquet rows. Rows are kept when EITHER pair is finite — e.g.
+    // 2026-01-27's 12k reconstructed rows have NaN raw but valid adj.
+    const rawLat = r.lat != null && Number.isFinite(r.lat) ? r.lat : null;
+    const rawLon = r.lon != null && Number.isFinite(r.lon) ? r.lon : null;
+    const adjLat = r.adj_lat != null && Number.isFinite(r.adj_lat) ? r.adj_lat : null;
+    const adjLon = r.adj_lon != null && Number.isFinite(r.adj_lon) ? r.adj_lon : null;
+    const hasRaw = rawLat != null && rawLon != null;
+    const hasAdj = adjLat != null && adjLon != null;
+    if (!hasRaw && !hasAdj) continue;
     const tMs = r.time instanceof Date ? r.time.getTime() : Number(r.time);
     onRow({
       bus_id: r.bus_id,
       route: r.route || "Unknown",
       time: tMs,
-      lat,
-      lon,
+      lat: rawLat,
+      lon: rawLon,
+      adj_lat: adjLat,
+      adj_lon: adjLon,
       speed: r.speed,
       // Python parquets DO carry speed_corrected (cross-bus per-tick outlier
       // correction, computed in the live pipeline). Use it directly. Fall
@@ -287,6 +342,7 @@ async function loadParquetFile(file, onRow) {
     });
     count += 1;
   }
+  } // end slice loop
   return count;
 }
 

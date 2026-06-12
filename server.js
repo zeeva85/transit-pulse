@@ -47,6 +47,7 @@ const { correctOutliers, CORRECTION_METHODS } = require("./outliers");
 const { initRouter } = require("./router");
 const {
   getCrossDayModel,
+  setCrossDayModel,
   getModelVersion,
   adjustRow,
   modelStats: crossDayStats,
@@ -624,30 +625,43 @@ async function maybeRunDayRollover(nowMs) {
       const model = await getCrossDayModel({ rebuild: true });
       const t1 = Date.now();
 
-      const result = await augmentJsonlFile(
-        yesterday,
-        model,
-        snapper,
-        gtfs.shapesByRoute,
-        buildInferredByBus()
+      // Process EVERY pending past-day JSONL, not just yesterday — a day
+      // whose rollover failed (crash, OOM, transient volume error) used to
+      // sit unconverted forever because lastKlDateSeen had already advanced
+      // and only restarts or manual maintenance could pick it up. Production
+      // precedent: 2026-06-10 sat as JSONL for two days.
+      const pendingDays = listDates().filter(
+        (d) => d.source === "jsonl" && d.date !== today
       );
-      const t2 = Date.now();
-      console.log(
-        `[rollover] ${yesterday}: model built in ${t1 - t0}ms, augmented ${result.augmented_rows}/${result.rows} rows in ${t2 - t1}ms`
-      );
-
-      // Convert augmented JSONL to parquet for compact on-disk storage.
-      try {
-        const conv = await convertDayToParquet(yesterday);
-        const t3 = Date.now();
-        if (conv) {
-          const kb = Math.round(conv.size_bytes / 1024);
-          console.log(
-            `[rollover] ${yesterday}: converted to parquet (${conv.rows} rows, ${kb} KB) in ${t3 - t2}ms — total ${t3 - t0}ms`
+      for (const d of pendingDays) {
+        closeWriter(d.date);
+        try {
+          const result = await augmentJsonlFile(
+            d.date,
+            model,
+            snapper,
+            gtfs.shapesByRoute,
+            buildInferredByBus()
           );
+          const t2 = Date.now();
+          console.log(
+            `[rollover] ${d.date}: model built in ${t1 - t0}ms, augmented ${result.augmented_rows}/${result.rows} rows in ${t2 - t1}ms`
+          );
+
+          // Convert augmented JSONL to parquet for compact on-disk storage.
+          const conv = await convertDayToParquet(d.date);
+          const t3 = Date.now();
+          if (conv) {
+            const kb = Math.round(conv.size_bytes / 1024);
+            console.log(
+              `[rollover] ${d.date}: converted to parquet (${conv.rows} rows, ${kb} KB) in ${t3 - t2}ms`
+            );
+          }
+        } catch (err) {
+          // Per-date isolation: one bad day must not block the others, and
+          // its JSONL stays on disk for the next rollover/restart to retry.
+          console.error(`[rollover] processing ${d.date} failed:`, err);
         }
-      } catch (convErr) {
-        console.error(`[rollover] parquet conversion for ${yesterday} failed:`, convErr);
       }
 
       const elapsed = Date.now() - t0;
@@ -1364,11 +1378,17 @@ const {
 const { convertDayToParquet } = require("./convert-day");
 
 let maintenanceInFlight = false;
+let lastMaintenanceReport = null; // exposed via /api/maintenance/status
 app.post("/api/maintenance/run", requireAdmin, express.json({ limit: "16kb" }), async (_req, res) => {
   if (maintenanceInFlight) {
     return res.status(409).json({ error: "maintenance already running" });
   }
   maintenanceInFlight = true;
+  // Respond immediately and run in the background — the full-history scan
+  // outlives the edge proxy's request timeout (the synchronous version 502'd
+  // and, before the memory fixes, took the whole process down with it). The
+  // report lands in /api/maintenance/status when done.
+  res.status(202).json({ started: true, status_url: "/api/maintenance/status" });
   try {
     await withPipelineLock(async () => {
     const dates = listDates();
@@ -1385,8 +1405,15 @@ app.post("/api/maintenance/run", requireAdmin, express.json({ limit: "16kb" }), 
       dates.slice(0, config.CROSS_DAY_MODEL_MAX_DAYS).map((d) => d.date)
     );
     let totalRows = 0;
+    const today = klDate(Date.now());
     for (let i = 0; i < dates.length; i++) {
       const d = dates[i];
+      // Skip today's in-progress data entirely — Python parity: both
+      // build_cross_day_position_model and accumulate_unknown_positions skip
+      // today. Feeding a partial day to the unknown accumulator was worse
+      // than useless: its per-(bus, date) dedup then permanently truncated
+      // that day's position count against the >= 100 promotion criterion.
+      if (d.date === today) continue;
       const tDate = Date.now();
       let dateRows = 0;
       const inModel = modelDates.has(d.date);
@@ -1401,6 +1428,10 @@ app.post("/api/maintenance/run", requireAdmin, express.json({ limit: "16kb" }), 
       );
     }
     const model = finalizeCrossDayModel(crossDayCtx, modelDates.size);
+    // Install into the cross-day cache — this freshly-built model used to be
+    // discarded, leaving buildHistoricalBuses adjusting against a stale (or
+    // absent) model until the next midnight rebuild.
+    setCrossDayModel(model);
     const unknownCount = await closeUnknownAccumulator(unknownCtx);
     const t1 = Date.now();
     console.log(`[maintenance] scan done in ${t1 - t0}ms; promoting…`);
@@ -1425,7 +1456,6 @@ app.post("/api/maintenance/run", requireAdmin, express.json({ limit: "16kb" }), 
     // Skips today's file (live pipeline is mid-write) and files already
     // augmented. Done AFTER promotion + GTFS reload so newly-published
     // LRN_* shapes are eligible snap targets for unknown-route rows.
-    const today = klDate(Date.now());
     let augmentedFiles = 0;
     let augmentedRows = 0;
     // Dates whose augmentation threw — these must NOT be converted below:
@@ -1493,8 +1523,9 @@ app.post("/api/maintenance/run", requireAdmin, express.json({ limit: "16kb" }), 
       `[maintenance] conversion done in ${t4 - t3}ms; total ${t4 - t0}ms`
     );
 
-    res.json({
+    lastMaintenanceReport = {
       ok: true,
+      finished_at: new Date().toISOString(),
       cross_day_model: {
         rows: model.total_rows,
         days: model.days_scanned,
@@ -1517,11 +1548,17 @@ app.post("/api/maintenance/run", requireAdmin, express.json({ limit: "16kb" }), 
       },
       single_pass_rows: totalRows,
       total_elapsed_ms: t4 - t0,
-    });
+    };
+    console.log("[maintenance] report:", JSON.stringify(lastMaintenanceReport));
     });
   } catch (err) {
     console.error("[api/maintenance/run]", err);
-    res.status(500).json({ error: "Internal server error" });
+    // Status endpoint is unauthenticated — generic text only, detail in logs.
+    lastMaintenanceReport = {
+      ok: false,
+      finished_at: new Date().toISOString(),
+      error: "internal error — see server logs",
+    };
   } finally {
     maintenanceInFlight = false;
   }
@@ -1529,6 +1566,8 @@ app.post("/api/maintenance/run", requireAdmin, express.json({ limit: "16kb" }), 
 
 app.get("/api/maintenance/status", (_req, res) => {
   res.json({
+    in_flight: maintenanceInFlight,
+    last_run: lastMaintenanceReport,
     cross_day: crossDayStats(),
     learned: learnedShapesStats(),
   });
@@ -1805,12 +1844,18 @@ replayTodaysData()
     app.listen(PORT, () => {
       console.log(`[busjs] listening on http://localhost:${PORT}`);
     });
-    getCrossDayModel().catch((err) =>
-      console.error("[startup] cross-day model build failed:", err)
-    );
-    startupMaintenance().catch((err) =>
-      console.error("[startup] maintenance failed:", err)
-    );
+    // SEQUENCED, not parallel: when a pending JSONL exists, startupMaintenance
+    // scans the full history and now installs its model into the cross-day
+    // cache, so the getCrossDayModel() call afterwards is a no-op cache hit.
+    // Running both concurrently doubled boot peak memory (two full-history
+    // scans) and repeatedly OOM-killed the 512 MB production container.
+    startupMaintenance()
+      .catch((err) => console.error("[startup] maintenance failed:", err))
+      .finally(() => {
+        getCrossDayModel().catch((err) =>
+          console.error("[startup] cross-day model build failed:", err)
+        );
+      });
   });
 
 // Heartbeat timer — fires every minute so maybeRunDayRollover triggers at KL
@@ -1849,8 +1894,10 @@ async function startupMaintenanceLocked() {
   // same as the API endpoint. All required modules are already imported
   // at the top of this file. Model consumption is capped to the most
   // recent CROSS_DAY_MODEL_MAX_DAYS dates (memory bound); the unknown
-  // accumulator sees every date.
-  const dates = listDates();
+  // accumulator sees every PAST date — today is skipped entirely (Python
+  // parity, and a partial day permanently truncates the unknown
+  // accumulator's per-(bus, date) counts).
+  const dates = listDates().filter((d) => d.date !== today);
   const modelDates = new Set(
     dates.slice(0, config.CROSS_DAY_MODEL_MAX_DAYS).map((d) => d.date)
   );
@@ -1864,6 +1911,12 @@ async function startupMaintenanceLocked() {
     });
   }
   const model = finalizeCrossDayModel(crossDayCtx, modelDates.size);
+  // Install into the cross-day cache so boot doesn't need a second
+  // full-history scan via getCrossDayModel (the two used to run
+  // CONCURRENTLY at boot whenever a pending JSONL existed — double the
+  // peak memory, which is what kept killing the 512 MB production
+  // container before 2026-06-10 could ever convert).
+  setCrossDayModel(model);
   await closeUnknownAccumulator(unknownCtx);
   const promotionResult = await promoteLearnedShapes();
   if (promotionResult.promoted > 0) reloadGtfsStatic();
