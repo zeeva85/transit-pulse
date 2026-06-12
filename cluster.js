@@ -43,7 +43,8 @@ async function buildFeatureMatrix(anchors = null, date = null) {
   const wantsHistorical = date && date !== "today";
   const modeData = {};
   for (const mode of MODES) {
-    const anchor = anchors && anchors[mode] != null ? anchors[mode] : null;
+    // > 0 (not just != null): zero pooled anchors collapse bin edges — mirror Python's `if v and v > 0`.
+    const anchor = anchors && anchors[mode] > 0 ? anchors[mode] : null;
     if (wantsHistorical) {
       const hist = await buildHistoricalHeatmap(date, loadDate, { mode, anchor });
       // No data for that date → empty stub so downstream loops are no-ops.
@@ -334,7 +335,8 @@ async function computeHourOrder({ metric = "euclidean", anchorMode = "physical",
   const modeData = {};
   const routesUnion = new Set();
   for (const mode of MODES) {
-    const anchor = anchors && anchors[mode] != null ? anchors[mode] : null;
+    // > 0 (not just != null): zero pooled anchors collapse bin edges — mirror Python's `if v and v > 0`.
+    const anchor = anchors && anchors[mode] > 0 ? anchors[mode] : null;
     if (wantsHistorical) {
       const hist = await buildHistoricalHeatmap(date, loadDate, { mode, anchor });
       modeData[mode] = hist || { routes: [], cells: [] };

@@ -17,7 +17,12 @@ set -euo pipefail
 
 SOURCE="${1:-https://buses.seevasantindran.com}"
 DATA_DIR="$(cd "$(dirname "$0")" && pwd)/data"
-TODAY="$(date -u +%Y-%m-%d)"   # UTC date; Railway runs UTC
+# KL date, NOT UTC. The server names files by Asia/Kuala_Lumpur date (UTC+8).
+# The old UTC check meant that between 00:00 KL and 08:00 KL, "today" in UTC
+# was still yesterday's KL date — so the script downloaded today's
+# still-accumulating data and saved JSONL bytes as a .parquet (this is how
+# the poisoned 2026-06-10.parquet happened).
+TODAY="$(TZ=Asia/Kuala_Lumpur date +%Y-%m-%d)"
 COOKIE_JAR="$(mktemp)"
 trap 'rm -f "$COOKIE_JAR"' EXIT
 
@@ -81,8 +86,18 @@ for DATE in $DATES; do
   # Try parquet first (server prefers it); fall back gracefully on 404
   HTTP_CODE="$(curl -sf -w "%{http_code}" -o "$PARQUET.tmp" $CURL_AUTH "$SOURCE/api/data/$DATE" || true)"
   if [ "$HTTP_CODE" = "200" ]; then
-    mv "$PARQUET.tmp" "$PARQUET"
-    NEW=$((NEW + 1))
+    # Verify parquet magic bytes ("PAR1") before keeping — the endpoint falls
+    # back to streaming JSONL when no parquet exists yet, and saving those
+    # bytes as .parquet poisons the local store (loadDate then shadows the
+    # date with a corrupt file forever).
+    MAGIC="$(head -c 4 "$PARQUET.tmp")"
+    if [ "$MAGIC" = "PAR1" ]; then
+      mv "$PARQUET.tmp" "$PARQUET"
+      NEW=$((NEW + 1))
+    else
+      rm -f "$PARQUET.tmp"
+      echo "    WARNING: $DATE returned non-parquet bytes (magic: '$MAGIC') — skipping (probably still JSONL on the server)"
+    fi
   else
     rm -f "$PARQUET.tmp"
     echo "    WARNING: $DATE returned HTTP $HTTP_CODE — skipping"

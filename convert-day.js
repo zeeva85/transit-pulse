@@ -116,8 +116,41 @@ async function convertDayToParquet(klDateStr) {
   }
 
   await writer.close();
-  // Atomic replace, then delete source.
+  // Atomic replace.
   fs.renameSync(tmpPath, outPath);
+
+  // Verify the parquet is readable and complete BEFORE deleting the JSONL —
+  // it is the only recovery source. loadDate's corrupt-parquet fallback
+  // ("fall through to JSONL") is useless if the JSONL was already deleted
+  // after an unverified write (truncated flush on power loss, parquetjs
+  // encoding edge case close() doesn't surface). Read back with RAW
+  // hyparquet, not store.js's loadDate — that loader skips non-finite-coord
+  // rows (store.js:250), which would spuriously undercount on days with
+  // null-position rows (precedent: 2026-01-27's 12k NaN lat/lon rows).
+  let readBack = -1;
+  try {
+    const { parquetReadObjects } = await import("hyparquet");
+    const buf = fs.readFileSync(outPath);
+    const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+    const verifyRows = await parquetReadObjects({ file: ab, columns: ["bus_id"] });
+    readBack = verifyRows.length;
+  } catch (err) {
+    console.error(`[convert] readback of ${outPath} failed:`, err.message);
+  }
+  if (readBack !== rows.length) {
+    // Move the bad parquet aside (kept for forensics as .bad) — it must not
+    // stay at the .parquet path, where loadDate would prefer it and a
+    // readable-but-short file would silently shadow the intact JSONL.
+    const badPath = `${outPath}.bad`;
+    try {
+      fs.renameSync(outPath, badPath);
+    } catch {
+      try { fs.unlinkSync(outPath); } catch { /* leave it — loadDate's corrupt fallback covers unreadable files */ }
+    }
+    throw new Error(
+      `parquet verification failed for ${klDateStr}: wrote ${rows.length} rows, read back ${readBack} — JSONL retained, bad file moved to ${path.basename(badPath)}`
+    );
+  }
   fs.unlinkSync(jsonlPath);
 
   const { size: size_bytes } = fs.statSync(outPath);

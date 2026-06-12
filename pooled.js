@@ -31,7 +31,18 @@ const KEY_BY_MODE = {
 let cache = { ts: 0, stamp: "", value: null };
 
 function fingerprint(dates) {
-  return dates.map((d) => `${d.date}:${d.size_bytes}:${d.mtime_ms}`).join("|");
+  // Today's live JSONL grows on every 2 s flush — including its size/mtime
+  // meant the stamp changed on essentially every call, so the cache NEVER
+  // hit during live operation and every pooled-anchor request re-walked all
+  // stored days (~seconds of parquet decode on the event loop). Today
+  // contributes its date string only; its data freshness is governed by the
+  // 1-hour TTL — exactly the freshness contract the TTL was designed for.
+  // Past-day changes (rollover conversion, sync pulls, re-augmentation)
+  // still bust the stamp. KL is UTC+8, no DST.
+  const klToday = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+  return dates
+    .map((d) => (d.date === klToday ? d.date : `${d.date}:${d.size_bytes}:${d.mtime_ms}`))
+    .join("|");
 }
 
 function medianOfArray(values) {
@@ -68,7 +79,10 @@ async function computePooledMedians() {
       }
       for (const m of MODES) {
         const v = row[KEY_BY_MODE[m]];
-        if (v != null && v >= 0) bus[m].push(v);
+        // <= 200 km/h plausibility filter — Python parity
+        // (busapp/history.py:222: `(col >= 0) & (col <= 200)`). EKF-runaway
+        // or GPS-spike samples must not shift the pooled anchors.
+        if (v != null && v >= 0 && v <= 200) bus[m].push(v);
       }
     });
     for (const bus of byBus.values()) {

@@ -82,6 +82,16 @@ function closeIdleStreams(idleMs = STORE_STREAM_IDLE_CLOSE_MS) {
 }
 setInterval(closeIdleStreams, 30_000).unref();
 
+// Close (and forget) the append stream for one date. Called by the rollover
+// pipeline before augmenting/converting yesterday's file so no open fd can
+// write through to the unlinked inode mid-pipeline.
+function closeWriter(klDateStr) {
+  const w = writers.get(klDateStr);
+  if (!w) return;
+  w.stream.end();
+  writers.delete(klDateStr);
+}
+
 // One row per (bus, tick). Field names match the Python parquet schema
 // (busapp/pipeline.py:131-145) byte-for-byte so the JSONL and parquet are
 // interchangeable persistence formats. Only the `time` field differs in VALUE
@@ -99,7 +109,14 @@ setInterval(closeIdleStreams, 30_000).unref();
 // Older JSONL files (pre-rename) used `speed_raw / speed_calc / speed_trust /
 // t` — `normalizeRow` below upgrades them transparently on read.
 function appendTick(busId, route, tMs, lat, lon, speeds, trustScore = null, weather = null) {
-  const date = klDate(tMs);
+  // Route by the CURRENT KL date, not the row's vehicle timestamp (Python
+  // parity: busapp persists every row to history/<date.today()>.parquet).
+  // In the first ticks after midnight, stale buses still carry pre-midnight
+  // GPS timestamps — routing those by klDate(tMs) wrote to yesterday's file
+  // concurrently with the rollover pipeline rewriting/converting/deleting it
+  // (writes through the old fd landed on the unlinked inode and vanished, or
+  // recreated a stray <yesterday>.jsonl that shadowed the parquet).
+  const date = klDate(Date.now());
   const row = {
     bus_id: busId,
     route: route || "Unknown",
@@ -278,6 +295,11 @@ async function loadParquetFile(file, onRow) {
 //   2. busjs/data/<date>.jsonl    — live or in-progress
 //   3. ../history/<date>.parquet  — Python-generated historical data
 async function loadDate(klDateStr, onRow) {
+  // Chokepoint guard: the date string reaches path.join below, and several
+  // unauthenticated endpoints pass it straight from a query param — without
+  // this check a request like ?date=../../../../etc/x traverses outside the
+  // data dirs (existence probing / arbitrary .parquet/.jsonl reads).
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(klDateStr)) return 0;
   const localParquet = path.join(DATA_DIR, `${klDateStr}.parquet`);
   if (fs.existsSync(localParquet)) {
     const n = await loadParquetFile(localParquet, onRow);
@@ -375,6 +397,7 @@ function storeStats() {
 module.exports = {
   DATA_DIR,
   appendTick,
+  closeWriter,
   loadDate,
   listDates,
   storeStats,

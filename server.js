@@ -7,6 +7,7 @@ require("dotenv").config();
 const config  = require("./config");
 const express = require("express");
 const helmet  = require("helmet");
+const compression = require("compression");
 const rateLimit = require("express-rate-limit");
 const { timingSafeEqual } = require("crypto");
 const fs = require("fs");
@@ -32,6 +33,7 @@ const {
 const { computeRouteClusters, computeHourOrder } = require("./cluster");
 const {
   appendTick,
+  closeWriter,
   loadDate,
   listDates,
   storeStats,
@@ -45,6 +47,7 @@ const { correctOutliers, CORRECTION_METHODS } = require("./outliers");
 const { initRouter } = require("./router");
 const {
   getCrossDayModel,
+  getModelVersion,
   adjustRow,
   modelStats: crossDayStats,
 } = require("./cross-day");
@@ -92,6 +95,13 @@ const MAX_HISTORY = config.MAX_POSITION_HISTORY;
 
 const app = express();
 app.disable("x-powered-by");
+// Exactly one proxy hop (Railway edge; nginx after the Oracle migration).
+// Without this, req.ip is the proxy's address for every client, so the
+// per-IP login rate limiter collapses into ONE global bucket — any visitor
+// could exhaust the 5 attempts/15 min and lock the real admin out. Do NOT
+// use `true` (it would trust client-supplied X-Forwarded-For, letting
+// attackers spoof distinct IPs to bypass the limiter).
+app.set("trust proxy", 1);
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
@@ -120,6 +130,12 @@ app.use(helmet({
   },
   hsts: { maxAge: 15552000, includeSubDomains: true },
 }));
+
+// Origin-level gzip. Railway's edge compresses transparently today, but the
+// repo must be self-sufficient: the planned Oracle/nginx migration (and any
+// direct `node server.js` use) would otherwise serve multi-MB JSON raw —
+// measured 49 MB / 18.8 s for a historical day vs 7 MB / 4.6 s gzipped.
+app.use(compression({ threshold: 1024 }));
 
 // Serve index.html with ?v=<git-sha> appended to all local CSS/JS URLs.
 // index.html itself is never cached so the new version string reaches the
@@ -482,7 +498,7 @@ let lastFeedEmptyMs = 0;
 // current readings (real-time, no model lag) are reflected in JSONL rows
 // within ~10 min, not at the next hour tick.
 const WEATHER_CACHE_TTL_MS = 10 * 60 * 1000;
-let weatherHourCache = { date: null, hour: null, data: null, fetchedAt: 0 };
+let weatherHourCache = { date: null, hour: null, data: null, fetchedAt: 0, failedUntil: 0 };
 
 async function getCurrentWeather(tMs) {
   // Derive KL date + hour from the tick timestamp.
@@ -494,13 +510,18 @@ async function getCurrentWeather(tMs) {
   if (weatherHourCache.date === date && weatherHourCache.hour === hour && age < WEATHER_CACHE_TTL_MS) {
     return weatherHourCache.data;
   }
+  // Negative cache: during a WeatherAPI outage every attempt can hang ~15 s,
+  // so without this every single tick re-paid the full timeout for the
+  // duration of the outage. One retry per 90 s instead.
+  if (Date.now() < weatherHourCache.failedUntil) return null;
   try {
     const hourly = await getWeatherForDate(date);
     const data   = hourly[hour] || null;
-    weatherHourCache = { date, hour, data, fetchedAt: Date.now() };
+    weatherHourCache = { date, hour, data, fetchedAt: Date.now(), failedUntil: 0 };
     return data;
   } catch (e) {
     // Degrade gracefully — bus data must not be blocked.
+    weatherHourCache.failedUntil = Date.now() + 90_000;
     return null;
   }
 }
@@ -583,6 +604,11 @@ async function maybeRunDayRollover(nowMs) {
   clearTrustBuffers();
   clearLiveAccumulator();
   sparklineHistory.clear();
+  // Close yesterday's append stream before the pipeline rewrites/converts/
+  // deletes the file — an open fd would write through to the unlinked inode.
+  // (appendTick also routes by current KL date now, so no new writes target
+  // yesterday; this covers the stream left open from before midnight.)
+  closeWriter(yesterday);
   console.log(
     `[rollover] KL date changed ${yesterday} → ${today}; cleared trust/heatmap/sparkline state, augmenting yesterday…`
   );
@@ -653,7 +679,13 @@ async function fetchFeed(cacheMs = FEED_CACHE_BASE_MS) {
   // current tick isn't blocked; failures just log.
   maybeRunDayRollover(now);
 
-  const buffer = await fetchFeedBytes();
+  // Feed bytes and weather fetch in parallel — weather used to be awaited
+  // serially after the feed, so a WeatherAPI hang stalled the whole tick
+  // (every client served stale cache while fetchInFlight was held).
+  const [buffer, tickWeather] = await Promise.all([
+    fetchFeedBytes(),
+    getCurrentWeather(now),
+  ]);
   const message = transit_realtime.FeedMessage.decode(buffer);
 
   // PASS 1 — parse + per-bus speed estimates (EKF, calc, trust).
@@ -665,10 +697,6 @@ async function fetchFeed(cacheMs = FEED_CACHE_BASE_MS) {
   // `prev_positions = positions` semantics — a bus absent from this feed
   // tick loses its prev entry, so on its next return EKF gets dt = 1.0
   // (fresh) and calc-speed stays null.
-  // Fetch current-hour weather once per tick — shared across all buses.
-  // Non-blocking: failure returns null and weather columns write null.
-  const tickWeather = await getCurrentWeather(now);
-
   const partialBuses = [];
   const newPositions = new Map();
   for (const entity of message.entity) {
@@ -928,9 +956,11 @@ async function buildHistoricalBuses(date) {
       speed_kalman: row.speed_kalman,
       weighted_speed: row.weighted_speed,
       // Carry the precomputed snap fields through so the renderer can skip
-      // re-projection when they're already on disk.
+      // re-projection when they're already on disk. cumdist is wire-rounded
+      // to 0.1 m — full doubles serialize at 15-17 digits for no benefit
+      // (persisted values are untouched; this is response assembly only).
       snap_shape_id: row.snap_shape_id ?? null,
-      snap_cumdist: row.snap_cumdist ?? null,
+      snap_cumdist: row.snap_cumdist != null ? Math.round(row.snap_cumdist * 10) / 10 : null,
     });
     // Always overwrite the last-known fields so the dot lands at the
     // bus's final position of the day (adjusted if the model fired).
@@ -967,21 +997,52 @@ async function buildHistoricalBuses(date) {
   return [...byBus.values()];
 }
 
+// LRU of fully-serialized historical /api/buses responses. Past-day files
+// are immutable outside maintenance, so entries key on the source file's
+// mtime (changes on re-augmentation / rollover conversion / admin upload)
+// plus the cross-day model version (entries built before the model existed
+// would otherwise cache un-adjusted positions for un-augmented days).
+// The serialized Buffer is cached so a repeat date-pick skips both the
+// multi-second rebuild AND the multi-MB JSON.stringify.
+const HIST_BUSES_CACHE_LIMIT = 3;
+const histBusesCache = new Map(); // date -> { key, buf }
+
 app.get("/api/buses", async (req, res) => {
   const date = req.query.date;
+  // Same guard as /api/weather (server.js gotcha: `date` reaches filesystem
+  // paths in loadDate — see the chokepoint check there too).
+  if (date && date !== "today" && !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return res.status(400).json({ error: "date must be YYYY-MM-DD" });
+  }
   const today = klDate(Date.now());
   const wantsHistorical = date && date !== today && date !== "today";
 
   if (wantsHistorical) {
     try {
+      const srcEntry = listDates().find((d) => d.date === date);
+      const key = `${srcEntry ? srcEntry.mtime_ms : 0}|${getModelVersion()}`;
+      const cached = histBusesCache.get(date);
+      if (cached && cached.key === key) {
+        // Refresh recency so date-hopping doesn't evict the active date.
+        histBusesCache.delete(date);
+        histBusesCache.set(date, cached);
+        return res.type("application/json").send(cached.buf);
+      }
       const buses = await buildHistoricalBuses(date);
-      return res.json({
-        ts: Date.now(),
-        count: buses.length,
-        buses,
-        is_historical: true,
-        date,
-      });
+      const buf = Buffer.from(
+        JSON.stringify({
+          ts: Date.now(),
+          count: buses.length,
+          buses,
+          is_historical: true,
+          date,
+        })
+      );
+      histBusesCache.set(date, { key, buf });
+      while (histBusesCache.size > HIST_BUSES_CACHE_LIMIT) {
+        histBusesCache.delete(histBusesCache.keys().next().value);
+      }
+      return res.type("application/json").send(buf);
     } catch (err) {
       console.error("[api/buses historical]", err);
       return res.status(500).json({ error: "Internal server error" });
@@ -1092,6 +1153,10 @@ app.get("/api/shapes", (req, res) => {
     if (gtfs.routeByShape[sid]) routeOf[sid] = gtfs.routeByShape[sid];
   }
   // `route_of` lets the frontend color each polyline by its route's cluster.
+  // Shape geometry changes only on deploy or LRN-shape promotion (rare) —
+  // let browsers reuse it for an hour instead of re-downloading ~700 KB gz
+  // on every page load.
+  res.setHeader("Cache-Control", "public, max-age=3600");
   res.json({ shapes, route_of: routeOf });
 });
 
@@ -1135,6 +1200,9 @@ app.get("/api/heatmap", async (req, res) => {
   const requested = req.query.mode || "trust";
   const anchorMode = req.query.anchor === "pooled" ? "pooled" : "physical";
   const requestedDate = req.query.date;
+  if (requestedDate && requestedDate !== "today" && !/^\d{4}-\d{2}-\d{2}$/.test(requestedDate)) {
+    return res.status(400).json({ error: "date must be YYYY-MM-DD" });
+  }
   const today = klDate(Date.now());
   // "today" or absent → live accumulator (real-time). Anything else → stream
   // the JSONL once into a scratch accumulator and answer from that.
@@ -1178,8 +1246,12 @@ app.get("/api/heatmap", async (req, res) => {
     if (requested === "all") {
       const all = {};
       for (const m of HEATMAP_MODES) {
+        // > 0 (not just != null): a pooled median of exactly 0 — possible
+        // when history is dominated by parked buses — collapses every bin
+        // edge to ~0 and blanks the heatmap. Mirrors Python _resolve_anchor
+        // (`if v and v > 0`).
         const anchorOverride =
-          anchorMode === "pooled" && pooled[m] != null ? pooled[m] : null;
+          anchorMode === "pooled" && pooled[m] > 0 ? pooled[m] : null;
         all[m] = await buildOne(m, anchorOverride);
       }
       return res.json({
@@ -1198,7 +1270,7 @@ app.get("/api/heatmap", async (req, res) => {
       });
     }
     const anchorOverride =
-      anchorMode === "pooled" && pooled && pooled[requested] != null
+      anchorMode === "pooled" && pooled && pooled[requested] > 0
         ? pooled[requested]
         : null;
     const body = await buildOne(requested, anchorOverride);
@@ -1604,7 +1676,11 @@ app.post("/api/admin/logout", (req, res) => {
 // ──────────────────────────────────────────────────────────────────────────
 // Trip planner — A* over OSM road graph with live bus congestion weights
 // ──────────────────────────────────────────────────────────────────────────
-app.get("/api/route", (req, res) => {
+// requireAdmin matches the documented design (and the frontend, which hides
+// the trip planner behind the admin UI) — without it, any anonymous client
+// could run an A* search over up to ROUTER_MAX_SETTLED=600k nodes on the
+// main thread per request.
+app.get("/api/route", requireAdmin, (req, res) => {
   if (!router) return res.status(503).json({ error: "Router not ready yet — try again in a few seconds" });
 
   const parseLatLon = (s) => {
@@ -1653,6 +1729,9 @@ app.get("/api/clusters", async (req, res) => {
   // compute_route_clusters(source, settings) where source can be a
   // historical DataFrame, not just today's accumulator.
   const date = req.query.date || null;
+  if (date && date !== "today" && !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return res.status(400).json({ error: "date must be YYYY-MM-DD" });
+  }
   // When `?hours=1`, also return the clustered hour-of-day order so the
   // heatmap's y-axis can mirror Python timeline.py:_cluster_hours.
   const wantHours = req.query.hours === "1";
@@ -1716,15 +1795,23 @@ if (process.env.ENABLE_ROUTER === "true") {
   console.log("[router] disabled (set ENABLE_ROUTER=true to enable trip planner)");
 }
 
-replayTodaysData().finally(() => {
-  app.listen(PORT, () => {
-    console.log(`[busjs] listening on http://localhost:${PORT}`);
+// .catch BEFORE .finally: .finally passes rejections through, and an
+// unhandled rejection on Node ≥15 kills the process — one bad row in
+// today's JSONL would crash-loop every boot (same file replayed each time).
+// The server must come up cold-cache instead.
+replayTodaysData()
+  .catch((err) => console.error("[startup] replay failed (starting cold):", err))
+  .finally(() => {
+    app.listen(PORT, () => {
+      console.log(`[busjs] listening on http://localhost:${PORT}`);
+    });
+    getCrossDayModel().catch((err) =>
+      console.error("[startup] cross-day model build failed:", err)
+    );
+    startupMaintenance().catch((err) =>
+      console.error("[startup] maintenance failed:", err)
+    );
   });
-  getCrossDayModel().catch(() => {});
-  startupMaintenance().catch((err) =>
-    console.error("[startup] maintenance failed:", err)
-  );
-});
 
 // Heartbeat timer — fires every minute so maybeRunDayRollover triggers at KL
 // midnight even when no browser is actively polling /api/buses. The rollover

@@ -169,10 +169,20 @@ function adjustRow(model, row) {
 // One-shot cache wrapper. Cross-day rebuild is expensive (~all stored data);
 // callers go through this so the maintenance UI can force a refresh.
 let _model = null;
+let _modelVersion = 0; // bumps on every (re)build — cache keys depend on it
 async function getCrossDayModel({ rebuild = false, onProgress = null } = {}) {
   if (_model && !rebuild) return _model;
   _model = await buildCrossDayModel({ onProgress });
+  _modelVersion += 1;
   return _model;
+}
+
+// Monotonic build counter. Consumers that cache adjustRow-derived output
+// (e.g. the historical /api/buses LRU) include this in their cache key so
+// entries built before the model existed — or against an older model — are
+// invalidated when a (re)build completes.
+function getModelVersion() {
+  return _modelVersion;
 }
 
 function modelStats() {
@@ -190,6 +200,7 @@ function modelStats() {
 module.exports = {
   buildCrossDayModel,
   getCrossDayModel,
+  getModelVersion,
   adjustRow,
   modelStats,
   bucketOf,

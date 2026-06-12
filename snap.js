@@ -244,6 +244,15 @@ function createSnapper(shapesById, shapesByRoute) {
   // out[i] covers trail[i]→trail[i+1]); per-pair timestamps live on the
   // trail itself and don't need to be duplicated here.
   // Caller decides how to render gaps (draw nothing or a faint chord).
+  // Wire-precision rounding for emitted paths: 5 dp ≈ 1.1 m, far below GPS
+  // noise, but full doubles serialize at 15-17 digits and snapped_trail
+  // dominates the /api/buses payload (measured −27% raw / −40% gzip).
+  // Builds NEW arrays — slicePolyline can return references to the cached
+  // polyline's vertex arrays, which must never be mutated. Wire-only:
+  // snapPoint (the augmenter, which persists snap_cumdist) is untouched.
+  const r5 = (x) => Math.round(x * 1e5) / 1e5;
+  const roundPath = (path) => path.map(([lon, lat]) => [r5(lon), r5(lat)]);
+
   function snapTrail(trail, routeLabel) {
     const out = [];
     if (!trail || trail.length < 2) return out;
@@ -276,7 +285,7 @@ function createSnapper(shapesById, shapesByRoute) {
           const reversed = p1.snap_cumdist > p2.snap_cumdist;
           if (sub.length >= 2) {
             prevShapeId = p1.snap_shape_id;
-            out.push({ path: reversed ? sub.reverse() : sub, source: "on_route" });
+            out.push({ path: roundPath(reversed ? sub.reverse() : sub), source: "on_route" });
             continue;
           }
         }
@@ -304,7 +313,7 @@ function createSnapper(shapesById, shapesByRoute) {
       if (snapped) {
         prevShapeId = snapped.shape_id;
         out.push({
-          path: snapped.path,
+          path: roundPath(snapped.path),
           source: crossRoute ? "cross_route" : "on_route",
         });
       } else {
@@ -313,10 +322,10 @@ function createSnapper(shapesById, shapesByRoute) {
           out.push({ path: null, source: "gap" });
         } else {
           out.push({
-            path: [
+            path: roundPath([
               [p1.lon, p1.lat],
               [p2.lon, p2.lat],
-            ],
+            ]),
             source: "fallback",
           });
         }

@@ -133,8 +133,22 @@ async function geocode(query) {
   return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon), displayName: data[0].display_name };
 }
 
+// Pre-started first bus fetch — kicked off before map construction so the
+// /api/buses round trip overlaps style+tile loading instead of waiting for
+// map "load". fetchBuses only touches state + header counters (no map
+// layers), so this is safe; refreshOnce() consumes the promise exactly once.
+let firstBusFetch = null;
+
 (async () => {
-  await loadServerConfig();
+  // Fire-and-forget: config only patches the satellite style URL, and the
+  // satellite style is requested when the user selects it — long after this
+  // resolves. Awaiting it serialized an extra RTT before the carto style
+  // fetch could even start.
+  loadServerConfig();
+  firstBusFetch = fetchBuses().catch((err) => {
+    console.warn("boot prefetch failed", err);
+    return null;
+  });
   map = new maplibregl.Map({
     container: "map",
     style: MAP_STYLES[mapStyle],
@@ -1560,7 +1574,17 @@ async function refreshOnce() {
   const historical = isHistoricalDate();
   if (historical) setMapLoading(true);
   try {
-    await fetchBuses();
+    if (firstBusFetch) {
+      // First run after boot: the fetch already happened in parallel with
+      // map/tile loading — just join it. A failed prefetch leaves
+      // state.buses empty; fall through to a real fetch.
+      const pre = firstBusFetch;
+      firstBusFetch = null;
+      await pre;
+      if (state.buses.length === 0) await fetchBuses();
+    } else {
+      await fetchBuses();
+    }
     if (!isHistoricalDate() && state.buses.length === 0 && !state.autoSwitchedToHistorical) {
       const switched = await maybeAutoSwitchToHistorical();
       if (switched) return;

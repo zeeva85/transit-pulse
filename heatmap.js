@@ -81,7 +81,11 @@ function makeAccumulator() {
     perMode.route = route;
     for (const m of MODES) {
       const v = speeds[m];
-      if (v == null || v < 0) continue;
+      // <= 200 km/h plausibility filter — Python parity (busapp/ui/
+      // timeline.py:502-504 filters `(col >= 0) & (col <= 200)` BEFORE the
+      // per-bus median). The spike carve-out at categorize time only handles
+      // the final median, not implausible samples skewing it.
+      if (v == null || v < 0 || v > 200) continue;
       pushCapped(perMode[m], v, SAMPLES_PER_BUSHOUR_CELL);
       totalSamples += 1;
     }

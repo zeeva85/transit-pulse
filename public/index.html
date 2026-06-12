@@ -10,6 +10,13 @@
   <meta property="og:image" content="https://raw.githubusercontent.com/zeeva85/transit-pulse/main/docs/live-desktop-dark-speed-trails.png" />
   <meta property="og:type" content="website" />
   <meta name="twitter:card" content="summary_large_image" />
+  <!-- Preconnects overlap DNS+TLS setup with HTML parsing. unpkg/jsdelivr
+       are fetched by no-cors <script>/<link> tags, so NO crossorigin attr
+       (a CORS-flavored socket wouldn't be reused); cartocdn is fetched via
+       maplibre's CORS fetch(), so it NEEDS crossorigin. -->
+  <link rel="preconnect" href="https://unpkg.com" />
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" />
+  <link rel="preconnect" href="https://basemaps.cartocdn.com" crossorigin />
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" />
   <link rel="stylesheet" href="./style.css" />
 </head>
