@@ -79,8 +79,11 @@ const RAILWAY_SHA = process.env.RAILWAY_GIT_COMMIT_SHA;
 if (RAILWAY_SHA && /^[0-9a-f]{7,40}$/i.test(RAILWAY_SHA)) {
   BUILD_VERSION = RAILWAY_SHA.slice(0, 7);
 }
+// Trailing slash after `prasarana` skips data.gov.my's 301 canonicalization
+// redirect (…/prasarana → …/prasarana/), saving one HTTP round-trip per fetch.
+// Keep in sync with busapp/config.py URL.
 const FEED_URL =
-  "https://api.data.gov.my/gtfs-realtime/vehicle-position/prasarana" +
+  "https://api.data.gov.my/gtfs-realtime/vehicle-position/prasarana/" +
   "?category=rapid-bus-kl";
 // Upstream feed updates ~every 30 s. The default cache window is 25 s
 // (slightly under) so we don't miss a tick. Clients can pass
