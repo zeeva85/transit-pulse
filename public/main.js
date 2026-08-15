@@ -1306,13 +1306,32 @@ function updateTrailColorCaption() {
     el.textContent = "";
     return;
   }
+  // Structured legend with real swatches matching the render palette
+  // (speedColor: red <20, orange 20–40, green >40), instead of emoji.
   if (state.trailColorBy === "speed") {
-    el.textContent =
-      "🔴 Slow (<20 km/h)   🟠 Medium (20–40 km/h)   🟢 Fast (>40 km/h)";
+    el.innerHTML =
+      '<div class="cap-title">Speed · km/h</div>' +
+      '<div class="cap-rows">' +
+      '<span class="cap-row"><span class="cap-swatch" style="background:rgb(255,0,0)"></span>&lt;20</span>' +
+      '<span class="cap-row"><span class="cap-swatch" style="background:rgb(255,165,0)"></span>20–40</span>' +
+      '<span class="cap-row"><span class="cap-swatch" style="background:rgb(0,255,0)"></span>&gt;40</span>' +
+      "</div>";
   } else if (isHistoricalDate()) {
-    el.textContent = "Trail color = time of day · 🔵 early → 🟡 midday → 🔴 late";
+    el.innerHTML =
+      '<div class="cap-title">Time of day</div>' +
+      '<div class="cap-rows">' +
+      '<span class="cap-row">early</span>' +
+      '<span class="cap-grad" style="background:linear-gradient(90deg,#3b82f6,#eab308,#ef4444)"></span>' +
+      '<span class="cap-row">late</span>' +
+      "</div>";
   } else {
-    el.textContent = "Trail fades from older (faint) to newer (bright).";
+    el.innerHTML =
+      '<div class="cap-title">Trail age</div>' +
+      '<div class="cap-rows">' +
+      '<span class="cap-row">older</span>' +
+      '<span class="cap-grad cap-grad--fade"></span>' +
+      '<span class="cap-row">newer</span>' +
+      "</div>";
   }
   el.hidden = false;
 }
