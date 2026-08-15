@@ -253,11 +253,27 @@ async function fetchBuses() {
   if (state.hideUnknown) buses = buses.filter((b) => b.route && b.route !== "Unknown");
   state.buses = buses;
   state.lastFetch = new Date(data.ts);
+  const routeCount = new Set(state.buses.map((b) => b.route)).size;
   document.getElementById("bus-count").textContent =
     state.buses.length.toLocaleString();
-  document.getElementById("route-count").textContent = new Set(
-    state.buses.map((b) => b.route)
-  ).size;
+  document.getElementById("route-count").textContent = routeCount;
+
+  // KPI band — headline numbers above the map.
+  const kpiBuses = document.getElementById("kpi-buses");
+  if (kpiBuses) {
+    kpiBuses.textContent = state.buses.length.toLocaleString();
+    document.getElementById("kpi-routes").textContent = routeCount;
+    const speeds = state.buses
+      .map((b) => effectiveSpeed(b))
+      .filter((v) => Number.isFinite(v) && v > 0)
+      .sort((a, b) => a - b);
+    document.getElementById("kpi-speed").textContent = speeds.length
+      ? Math.round(speeds[Math.floor(speeds.length / 2)])
+      : "—";
+    if (data.is_historical) {
+      document.getElementById("kpi-source").textContent = `Viewing ${data.date}`;
+    }
+  }
   const mapDateLabel = document.getElementById("map-date-label");
   mapDateLabel.textContent = data.is_historical
     ? `(Viewing ${data.date})`
@@ -2295,6 +2311,12 @@ function bindNewSidebarControls() {
     try {
       const res = await fetch("/api/health");
       const data = await res.json();
+      // KPI band: name the feed actually being collected (live mode only —
+      // historical mode overwrites this with "Viewing <date>" on each fetch).
+      const kpiSource = document.getElementById("kpi-source");
+      if (kpiSource && data.feed_source && !isHistoricalDate()) {
+        kpiSource.textContent = data.feed_source.label || data.feed_source.id;
+      }
       if (feedEmptyBanner) {
         if (data.feed_empty_count > 0 && !isHistoricalDate()) {
           // Name a live sibling feed when the monitor has one. "Ours is 0 but

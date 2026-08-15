@@ -24,6 +24,7 @@ gtfs_static/unknown_observations.*
 # re-downloads its static feed from api.data.gov.my on first boot.
 data-*/
 gtfs-*/
+gtfs_static/rapid-bus-mrtfeeder/
 
 # Credentials & keys (never want these in any repo, ever)
 *.pem

@@ -91,6 +91,12 @@ function isPrimary() {
   return ACTIVE.id === PRIMARY.id;
 }
 
+// True when the operator pinned a source via the FEED_SOURCE env var —
+// auto-switch and boot-time restore both defer to an explicit pin.
+function isExplicit() {
+  return PINNED_EXPLICIT;
+}
+
 // ── Auto-switch between the two KL feeds ────────────────────────────────────
 // Scoped deliberately to rapid-bus-kl <-> rapid-bus-mrtfeeder and nothing else.
 // Measured 2026-08-15 across 324 KL trunk bus ids and 145 live feeder ids:
@@ -321,6 +327,7 @@ module.exports = {
   COLLECTABLE,
   PRIMARY,
   PINNED,
+  isExplicit,
   switchCandidate,
   setActive,
   activeSource,

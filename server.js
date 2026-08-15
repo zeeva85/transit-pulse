@@ -261,14 +261,44 @@ function loadGtfsStatic(dir = GTFS_DIR) {
   const extendedShapesRows = loadCsv("extended_shapes.txt", { optional: true, dir });
   const allShapesRows = shapesRows.concat(extendedShapesRows);
 
-  // rapid-bus-kl fills both name columns; rapid-bus-mrtfeeder ships an empty
-  // route_short_name, which would render as a leading " – T117". Use whichever
-  // half is present.
+  // rapid-bus-mrtfeeder's routes.txt has no real names — route_long_name is
+  // just the code ("T117") — but every one of its trips carries a headsign
+  // like "MRT SURIAN - SEK 11 KOTA DAMANSARA". Recover a proper label from the
+  // most common direction-0 headsign per route (deterministic tie-break, so
+  // the label is stable across restarts). The trunk feed's own T-routes
+  // (T350, T450…) are a different set and don't cover these.
+  const headsignByRoute = {};
+  {
+    const counts = {};
+    for (const t of tripsRows) {
+      const hs = (t.trip_headsign || "").trim();
+      if (!hs || (t.direction_id || "0") !== "0") continue;
+      (counts[t.route_id] = counts[t.route_id] || {})[hs] =
+        (counts[t.route_id][hs] || 0) + 1;
+    }
+    for (const rid of Object.keys(counts)) {
+      headsignByRoute[rid] = Object.entries(counts[rid])
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0][0];
+    }
+  }
+  // Headsigns arrive ALL-CAPS; title-case for display, keep transit acronyms,
+  // and use the trunk feed's "A ~ B" separator style.
+  const titleCaseHeadsign = (hs) =>
+    hs
+      .toLowerCase()
+      .replace(/\b[a-z]/g, (c) => c.toUpperCase())
+      .replace(/\b(Mrt|Lrt|Ktm|Brt|Kl|Utc|Ppr)\b/g, (m) => m.toUpperCase())
+      .replace(/ - /g, " ~ ");
+
   const routeLabel = (r) => {
     const short = (r.route_short_name || "").trim();
     const long = (r.route_long_name || "").trim();
     if (short && long) return `${short} – ${long}`;
-    return short || long || r.route_id;
+    const code = short || long;
+    if (code && /^[A-Z]{0,3}\d+[A-Za-z]*$/.test(code) && headsignByRoute[r.route_id]) {
+      return `${code} – ${titleCaseHeadsign(headsignByRoute[r.route_id])}`;
+    }
+    return code || r.route_id;
   };
 
   const routeById = Object.fromEntries(routesRows.map((r) => [r.route_id, routeLabel(r)]));
@@ -431,6 +461,40 @@ function stageSourceSwitch(src) {
     );
 }
 
+// The active source survives restarts. Railway redeploys on every push, and
+// without this each deploy booted back onto the (dead) pinned feed, showed an
+// empty map for a minute, then re-discovered the outage and re-switched — the
+// "takes a while after every deploy" symptom. Explicit FEED_SOURCE still wins.
+const ACTIVE_SRC_FILE = path.join(DATA_DIR, "active-source.json");
+
+function persistActiveSource(id) {
+  try {
+    const tmp = `${ACTIVE_SRC_FILE}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify({ id }));
+    fs.renameSync(tmp, ACTIVE_SRC_FILE);
+  } catch (err) {
+    console.warn("[feed] could not persist active source:", err.message);
+  }
+}
+
+async function restorePersistedSource() {
+  if (feedSources.isExplicit()) return; // operator's env pin always wins
+  let saved;
+  try {
+    saved = JSON.parse(fs.readFileSync(ACTIVE_SRC_FILE, "utf8")).id;
+  } catch {
+    return; // no file yet — first run
+  }
+  if (!saved || saved === FEED_SOURCE.id) return;
+  const src = feedSources.COLLECTABLE.find((s) => s.id === saved);
+  if (!src) return;
+  const bundle = await loadBundleFor(src);
+  feedSources.setActive(src);
+  FEED_SOURCE = src;
+  gtfs = bundle ? bundle.gtfs : primaryGtfs;
+  console.log(`[feed] restored ${src.id} from the previous run — no re-discovery delay`);
+}
+
 // Runs synchronously at the top of a tick, before any await.
 function applyPendingSwitch() {
   if (!pendingSwitch) return;
@@ -439,6 +503,7 @@ function applyPendingSwitch() {
   if (!feedSources.setActive(src)) return;
 
   FEED_SOURCE = src;
+  persistActiveSource(src.id);
   // Route lookups follow the active source; `snapper` is deliberately NOT
   // swapped — buildMergedSnapper already made it cover both networks.
   gtfs = bundle ? bundle.gtfs : primaryGtfs;
@@ -2006,12 +2071,16 @@ async function replayTodaysData() {
   const today = klDate(Date.now());
   let rowCount = 0;
   let skippedOtherSource = 0;
-  // Belt and braces: one process writes one source into its own DATA_DIR, so
-  // this only fires if a mis-set DATA_DIR points two collectors at one folder.
-  const activeSourceId = FEED_SOURCE.id;
+  // A day file can legitimately hold BOTH KL feeds when the auto-switch fired
+  // mid-day (redeploys reset the process, so this is common). Replay accepts
+  // any collectable KL source — measured zero bus_id and zero route-label
+  // overlap between the two — otherwise every redeploy silently dropped the
+  // earlier half of the day from sparklines, trails and the heatmap. Rows from
+  // any OTHER source can only mean a mis-set DATA_DIR; those are still skipped.
+  const collectableIds = new Set(feedSources.COLLECTABLE.map((s) => s.id));
   await loadDate(today, (row) => {
     if (row.lat == null || row.lon == null) return;
-    if (row.feed_source && row.feed_source !== activeSourceId) {
+    if (row.feed_source && !collectableIds.has(row.feed_source)) {
       skippedOtherSource += 1;
       return;
     }
@@ -2075,6 +2144,8 @@ async function bootstrapSourceGtfs() {
 
 bootstrapSourceGtfs()
   .catch((err) => console.error("[startup] static GTFS bootstrap failed:", err.message))
+  .then(() => restorePersistedSource())
+  .catch((err) => console.error("[startup] source restore failed (staying on pinned):", err.message))
   .then(() => replayTodaysData())
   .catch((err) => console.error("[startup] replay failed (starting cold):", err))
   .finally(() => {
