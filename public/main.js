@@ -2297,8 +2297,25 @@ function bindNewSidebarControls() {
       const data = await res.json();
       if (feedEmptyBanner) {
         if (data.feed_empty_count > 0 && !isHistoricalDate()) {
-          feedEmptyBanner.textContent =
-            "⚠ Live bus feed is returning no data — data.gov.my may be temporarily unavailable.";
+          // Name a live sibling feed when the monitor has one. "Ours is 0 but
+          // MRT Feeder has 97" is the difference between "this site is broken"
+          // and "the upstream is down", and it costs one sentence.
+          const sweep = (data.feed_source && data.feed_source.monitor &&
+                         data.feed_source.monitor.sources) || [];
+          const ours = (data.feed_source && data.feed_source.id) || "The live feed";
+          // Prefer a same-city sibling over a busier feed 300 km away — "MRT
+          // Feeder has 139" is far more meaningful to a KL reader than Penang.
+          const live = sweep.filter((s) => s.id !== ours && s.vehicles > 0);
+          const alive =
+            live.filter((s) => /^rapid-bus-(kl|mrtfeeder)$/.test(s.id))[0] ||
+            live.sort((a, b) => b.vehicles - a.vehicles)[0];
+          const detail = alive
+            ? ` Other Malaysian feeds are running normally (${alive.id}: ${alive.vehicles} buses),` +
+              " so this is an upstream outage rather than a fault with this site."
+            : " data.gov.my may be temporarily unavailable.";
+          feedEmptyBanner.innerHTML =
+            `⚠ <strong>${ours}</strong> is reporting no buses.${detail} ` +
+            '<a href="/status" style="color:inherit;text-decoration:underline">See feed status →</a>';
           feedEmptyBanner.style.display = "flex";
         } else {
           feedEmptyBanner.style.display = "none";

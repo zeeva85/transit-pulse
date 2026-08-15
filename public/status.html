@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Feed Status — KL.my Bus Tracker</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 15px;
+      line-height: 1.7;
+      color: #e6e6e6;
+      background: #0e1117;
+      min-height: 100vh;
+    }
+    body.light-mode { color: #111827; background: #f3f4f6; }
+
+    header {
+      background: #161b22;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      padding: 0 24px;
+      height: 60px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    body.light-mode header { background: #fff; border-bottom-color: #e5e7eb; }
+
+    .header-brand a { color: #79b8ff; font-weight: 600; text-decoration: none; font-size: 16px; }
+    body.light-mode .header-brand a { color: #1d4ed8; }
+
+    .header-back {
+      display: inline-flex; align-items: center; gap: 5px;
+      color: #8b949e; text-decoration: none; font-size: 13px;
+    }
+    .header-back:hover { color: #79b8ff; }
+    body.light-mode .header-back { color: #6b7280; }
+
+    .theme-toggle-btn {
+      background: transparent; border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 6px; padding: 5px 8px; cursor: pointer;
+      display: inline-flex; align-items: center;
+    }
+    .theme-toggle-btn:hover { border-color: #79b8ff; }
+    body.light-mode .theme-toggle-btn { border-color: #d1d5db; }
+
+    main { max-width: 860px; margin: 0 auto; padding: 32px 24px 64px; }
+
+    h1 { font-size: 26px; font-weight: 650; margin-bottom: 6px; letter-spacing: -0.01em; }
+    .subtitle { color: #8b949e; font-size: 14px; margin-bottom: 28px; }
+    body.light-mode .subtitle { color: #6b7280; }
+
+    /* Verdict banner — the headline answer, before any table. */
+    .verdict {
+      border-radius: 10px; padding: 16px 18px; margin-bottom: 28px;
+      border: 1px solid transparent; font-size: 14.5px;
+    }
+    .verdict strong { display: block; font-size: 16px; margin-bottom: 4px; }
+    .verdict.ok    { background: rgba(34,197,94,0.10);  border-color: rgba(34,197,94,0.35);  color: #86efac; }
+    .verdict.warn  { background: rgba(245,158,11,0.10); border-color: rgba(245,158,11,0.40); color: #fcd34d; }
+    .verdict.error { background: rgba(239,68,68,0.10);  border-color: rgba(239,68,68,0.40);  color: #fca5a5; }
+    .verdict.load  { background: rgba(139,148,158,0.10); border-color: rgba(139,148,158,0.3); color: #8b949e; }
+    body.light-mode .verdict.ok    { color: #15803d; }
+    body.light-mode .verdict.warn  { color: #b45309; }
+    body.light-mode .verdict.error { color: #b91c1c; }
+
+    h2 { font-size: 15px; font-weight: 600; margin: 28px 0 10px; color: #c9d1d9; }
+    body.light-mode h2 { color: #374151; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th {
+      text-align: left; font-weight: 600; font-size: 12px; text-transform: uppercase;
+      letter-spacing: 0.04em; color: #8b949e; padding: 8px 10px;
+      border-bottom: 1px solid rgba(255,255,255,0.12);
+    }
+    td { padding: 9px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+    body.light-mode th { color: #6b7280; border-bottom-color: #d1d5db; }
+    body.light-mode td { border-bottom-color: #e5e7eb; }
+    tr.is-ours { background: rgba(121,184,255,0.07); }
+    tr.is-ours td:first-child { font-weight: 600; }
+    td.num { text-align: right; font-variant-numeric: tabular-nums; width: 90px; }
+
+    .pill {
+      display: inline-block; padding: 1px 8px; border-radius: 999px;
+      font-size: 11px; font-weight: 600; letter-spacing: 0.02em;
+    }
+    .pill.live { background: rgba(34,197,94,0.16);  color: #4ade80; }
+    .pill.zero { background: rgba(245,158,11,0.16); color: #fbbf24; }
+    .pill.down { background: rgba(239,68,68,0.16);  color: #f87171; }
+    .pill.ours { background: rgba(121,184,255,0.16); color: #79b8ff; margin-left: 6px; }
+
+    .note { color: #8b949e; font-size: 13px; margin-top: 18px; }
+    body.light-mode .note { color: #6b7280; }
+    .note code {
+      background: rgba(255,255,255,0.07); padding: 1px 5px; border-radius: 4px;
+      font-size: 12px;
+    }
+    body.light-mode .note code { background: #e5e7eb; }
+
+    footer {
+      border-top: 1px solid rgba(255,255,255,0.08);
+      padding: 20px 24px; text-align: center; font-size: 13px; color: #8b949e;
+    }
+    footer a { color: #79b8ff; text-decoration: none; }
+    body.light-mode footer { border-top-color: #e5e7eb; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="header-brand">
+    <a href="/">KL.my Bus Tracker</a>
+  </div>
+  <div style="display:flex;align-items:center;gap:12px">
+    <a href="/" class="header-back">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+      Back to map
+    </a>
+    <button id="theme-toggle" class="theme-toggle-btn" type="button" title="Toggle light/dark mode">
+      <svg id="icon-sun" viewBox="0 0 24 24" width="15" height="15" fill="#FFD60A" stroke="#FFD60A" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+      <svg id="icon-moon" viewBox="0 0 24 24" width="15" height="15" fill="#7dd3fc" stroke="#7dd3fc" stroke-width="2" stroke-linecap="round" style="display:none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+    </button>
+  </div>
+</header>
+
+<main>
+  <h1>Feed status</h1>
+  <p class="subtitle">
+    Live vehicle counts for every Malaysian GTFS-realtime feed published by
+    data.gov.my. A feed reading zero only means something when compared against
+    the others, since they all wind down overnight.
+  </p>
+
+  <div id="verdict" class="verdict load"><strong>Checking…</strong>Loading the latest sweep.</div>
+
+  <h2>Kuala Lumpur — what this app collects</h2>
+  <table>
+    <thead>
+      <tr><th>Feed</th><th>Network</th><th>Status</th><th class="num">Buses</th></tr>
+    </thead>
+    <tbody id="kl-rows"></tbody>
+  </table>
+
+  <h2>Everywhere else — monitored for comparison only</h2>
+  <table>
+    <thead>
+      <tr><th>Feed</th><th>Region</th><th>Status</th><th class="num">Buses</th></tr>
+    </thead>
+    <tbody id="other-rows"></tbody>
+  </table>
+
+  <p class="note" id="swept-note"></p>
+  <p class="note">
+    Counts refresh server-side every 10 minutes. <code>0</code> means the feed
+    answered normally but reported no vehicles; <code>unreachable</code> means
+    the request itself failed. Data from
+    <a href="https://developer.data.gov.my/realtime-api/gtfs-realtime">data.gov.my</a>.
+  </p>
+</main>
+
+<footer>
+  <a href="/">&larr; KL.my Bus Tracker</a>
+</footer>
+
+<script src="/theme-toggle.js"></script>
+<script src="/status.js"></script>
+</body>
+</html>

@@ -1,46 +1,17 @@
-// feed-sources.js — feed source registry, boot-time selection, and monitoring.
+// feed-sources.js — feed registry, boot-time source selection, and monitoring.
 //
-// WHY THIS MODULE EXISTS
-// ----------------------
-// On 2026-08-06 at 13:59 KL the upstream `rapid-bus-kl` vehicle-position feed
-// stopped returning vehicles. Critically it did NOT start erroring: it kept
-// answering HTTP 200 with a structurally valid, entity-less FeedMessage whose
-// header timestamp still ticked forward. Every failure detector in the app was
-// watching for HTTP errors, so nothing fired and the pipeline quietly collected
-// zero rows for over a week. Two other developers independently hit the same
-// wall on 2026-08-13 (data-gov-my/datagovmy-front#659); an identical outage
-// reported on 2026-03-29 (#638) is still unanswered by data.gov.my.
+// Exists because on 2026-08-06 the rapid-bus-kl feed stopped returning vehicles
+// without erroring — HTTP 200 with an entity-less FeedMessage — so every
+// error-based detector missed it and collection sat at zero for two months.
+// The fix is monitoring, not automatic substitution.
 //
-// THE FIX IS MONITORING, NOT AUTOMATIC SUBSTITUTION
-// -------------------------------------------------
-// The first attempt at this made the process swap its active source at runtime
-// when the primary went cold. That was wrong, in a way worth recording so it is
-// not rebuilt later:
-//
-//   - This app is Kuala Lumpur specific. Its map, its static GTFS, its speed
-//     baselines and every analytic in it are KL. Penang buses are not a
-//     substitute for KL buses; they are a different dataset.
-//   - `bus_id` is only unique WITHIN an agency, so mixing two agencies into one
-//     process corrupted the per-bus EKF/trust state, the cross-day position
-//     model (which then rewrote positions to another city and persisted them),
-//     and the learned-shapes pipeline (which promoted a foreign route into KL's
-//     own extended_shapes.txt).
-//   - Swapping a global mid-flight raced with the in-flight tick, mislabelled
-//     rows, and could wedge the process with no path back.
-//
-// So: ONE SOURCE PER PROCESS, chosen at boot and never changed. Node module
-// state is already per-process and every history scanner reads a single
-// directory, so process-per-source gives full isolation with no refactor at
-// all. To collect another city, run another process:
+// ONE CITY PER PROCESS. Auto-switching is allowed ONLY between the two Kuala
+// Lumpur feeds (rapid-bus-kl <-> rapid-bus-mrtfeeder), which is safe because
+// they share no bus ids and no route labels — see the note above
+// switchCandidate. Switching across cities was built and removed; CLAUDE.md
+// lists what it broke. To collect another city, run another process:
 //
 //   FEED_SOURCE=mybas-johor DATA_DIR=./data-johor GTFS_DIR=./gtfs-johor node server.js
-//
-// (Note the 512 MB Railway container fits exactly one collector — the cross-day
-// scan alone has been measured at 500+ MB peak RSS, see store.js. Multiple
-// collectors are for the larger migration target.)
-//
-// What this module still does is watch every source continuously and report,
-// so a silent feed is loud within minutes instead of two months.
 
 const fs = require("fs");
 const path = require("path");
@@ -52,39 +23,32 @@ const config = require("./config");
 const RT_BASE = "https://api.data.gov.my/gtfs-realtime/vehicle-position";
 const STATIC_BASE = "https://api.data.gov.my/gtfs-static";
 
-// Every known feed. Swept by the monitor so a dead source can be compared
-// against its siblings — that comparison is the only reliable way to tell a
-// broken feed from a legitimately quiet night.
+// Every known feed. The monitor sweeps all of them, because a source reading
+// zero only means something compared against its siblings.
 const SOURCES = config.FEED_SOURCES;
 
-// The subset this app is allowed to COLLECT. Kuala Lumpur only: the map, the
-// static GTFS, the speed baselines and the cross-day position model are all KL,
-// so collecting another state would pollute them rather than substitute for
-// them. `rapid-bus-kl` is the trunk network; `rapid-bus-mrtfeeder` is the same
-// operator's T-prefixed feeder network over the same Klang Valley area.
+// Collectable = Kuala Lumpur only. Everything in this app (map, static GTFS,
+// speed baselines, cross-day model) is KL, so another state would pollute it.
 const COLLECTABLE = SOURCES.filter((s) => s.kl);
 
+// A candidate must be properly busy before auto-switch commits to it. Both KL
+// feeds drain to zero overnight, so "more than zero" would flap nightly.
+const MIN_VEHICLES = config.FEED_MIN_VEHICLES_TO_SWITCH;
 const PROBE_TIMEOUT_MS = config.FEED_PROBE_TIMEOUT_MS;
 const MONITOR_INTERVAL_MS = config.FEED_MONITOR_INTERVAL_MS;
 
-// Only these files are extracted from a source's static ZIP. The feeds ship the
-// full GTFS set, but stop_times.txt alone is ~5 MB for KL and nothing in the
-// live path reads it.
+// Extracted from a source's static ZIP. The rest of the GTFS set is unused here
+// and stop_times.txt alone is ~5 MB.
 const WANTED_FILES = new Set(["routes.txt", "trips.txt", "shapes.txt"]);
 
-// The realtime endpoints 301-redirect any path without a trailing slash
-// (`/prasarana?category=x` → `/prasarana/?category=x`). node-fetch follows it
-// so nothing broke, but that is a wasted round trip on every single poll —
-// ~2,900 per day at the 30 s cadence. Insert the slash before the query string
-// so we hit 200 directly. Verified 2026-08-15: with the slash both the
-// `prasarana?category=` and bare `mybas-*` forms return 200 with no redirect.
+// Trailing slash before the query string skips data.gov.my's 301, saving a
+// round trip on every poll. The static endpoints do the opposite (302 WITH a
+// slash), so staticUrl below deliberately omits it.
 function rtUrl(src) {
   const [base, query] = src.path.split("?");
   return `${RT_BASE}/${base}/${query ? `?${query}` : ""}`;
 }
 
-// NOTE: the static endpoints behave the OPPOSITE way — a trailing slash there
-// returns 302, so staticUrl deliberately does not add one.
 function staticUrl(src) {
   return `${STATIC_BASE}/${src.path}`;
 }
@@ -94,8 +58,7 @@ function byId(id) {
 }
 
 // ── Boot-time source selection ──────────────────────────────────────────────
-// Resolved ONCE at module load. There is deliberately no setter: the whole
-// point of the design is that a process never changes source under itself.
+// Resolved once at module load. Deliberately no setter.
 const PRIMARY = COLLECTABLE[0];
 
 function resolveSource() {
@@ -104,26 +67,21 @@ function resolveSource() {
   const found = COLLECTABLE.find((s) => s.id === requested);
   if (found) return found;
 
-  // Fail loudly rather than silently collecting the wrong city into a
-  // directory named for a different one. Distinguish "not a feed at all" from
-  // "a real feed, but not a KL one" — the second is the likely mistake, and
-  // the message needs to explain why it is refused rather than look like a typo.
+  // Fail loudly rather than collect the wrong city into a directory named for
+  // another. A known-but-non-KL id is the likely mistake, so say why.
   const ids = COLLECTABLE.map((s) => s.id).join(", ");
-  if (byId(requested)) {
-    throw new Error(
-      `FEED_SOURCE="${requested}" is a known feed but is not a Kuala Lumpur bus ` +
-        `service, so this app will not collect it: its map, static GTFS and speed ` +
-        `baselines are all KL, and mixing another state's buses into them corrupts ` +
-        `the cross-day position model and the learned-shapes pipeline. ` +
-        `Collectable ids: ${ids}. (All feeds are still monitored — see /api/health.)`
-    );
-  }
-  throw new Error(
-    `FEED_SOURCE="${requested}" is not a known feed source. Collectable ids: ${ids}`
-  );
+  const why = byId(requested)
+    ? "is a known feed but is not a KL bus service, which this app cannot collect"
+    : "is not a known feed source";
+  throw new Error(`FEED_SOURCE="${requested}" ${why}. Options: ${ids}`);
 }
 
-const ACTIVE = resolveSource();
+// The source picked at boot. Auto-switch may move ACTIVE off this, but PINNED
+// is what an explicit FEED_SOURCE asked for, and auto-switch never overrides an
+// explicit choice.
+const PINNED = resolveSource();
+const PINNED_EXPLICIT = !!(process.env.FEED_SOURCE || "").trim();
+let ACTIVE = PINNED;
 
 function activeSource() {
   return ACTIVE;
@@ -133,13 +91,60 @@ function isPrimary() {
   return ACTIVE.id === PRIMARY.id;
 }
 
+// ── Auto-switch between the two KL feeds ────────────────────────────────────
+// Scoped deliberately to rapid-bus-kl <-> rapid-bus-mrtfeeder and nothing else.
+// Measured 2026-08-15 across 324 KL trunk bus ids and 145 live feeder ids:
+// ZERO bus_id overlap and ZERO route-label overlap (trunk uses "151 – …",
+// feeder uses "T100"). Same operator, same Klang Valley, so the map centre,
+// weather and speed baselines all stay correct too. That is what makes
+// switching safe here when the 14-city version was not.
+//
+// Switching is still a real event: the caller must clear per-bus state and
+// reload the GTFS bundle. server.js:applySourceSwitch does both.
+let switchCount = 0;
+let lastSwitchMs = null;
+
+function switchCandidate(sweepResults) {
+  // Never override an operator's explicit FEED_SOURCE.
+  if (PINNED_EXPLICIT) return null;
+  if (!sweepResults || !sweepResults.length) return null;
+
+  const countOf = (id) => {
+    const row = sweepResults.filter((r) => r.id === id)[0];
+    return row ? row.vehicles : -1;
+  };
+  const activeCount = countOf(ACTIVE.id);
+  if (activeCount > 0) {
+    // Healthy. Return home if we are on the fallback and the preferred feed
+    // has recovered.
+    if (ACTIVE.id !== PINNED.id && countOf(PINNED.id) >= MIN_VEHICLES) return PINNED;
+    return null;
+  }
+
+  // Active is empty or unreachable. Move only to a KL sibling that is properly
+  // busy — a lone straggler at 2 a.m. must not trigger a switch, since both
+  // feeds legitimately drain overnight.
+  const sibling = COLLECTABLE.filter(
+    (s) => s.id !== ACTIVE.id && countOf(s.id) >= MIN_VEHICLES
+  )[0];
+  return sibling || null;
+}
+
+function setActive(src) {
+  if (!src || src.id === ACTIVE.id) return null;
+  const from = ACTIVE.id;
+  ACTIVE = src;
+  switchCount += 1;
+  lastSwitchMs = Date.now();
+  console.warn(`[feed] switching source ${from} -> ${src.id} (${src.label})`);
+  return src;
+}
+
 // ── Probing / monitoring ────────────────────────────────────────────────────
 
-// Vehicle count for a source, or -1 if the probe itself failed. -1 is
-// deliberately distinct from 0: zero means "reachable but no buses right now",
-// which is the normal overnight state (verified 2026-08-15, every Malaysian
-// feed drains to 0-6 vehicles around 02:00 KL) and must never be read as an
-// outage on its own.
+// Vehicle count, or -1 if the probe failed. -1 must stay distinct from 0: zero
+// means "reachable but no buses", the normal overnight state for every
+// Malaysian feed, and is not an outage on its own.
 async function probe(src) {
   try {
     const res = await fetch(rtUrl(src), { timeout: PROBE_TIMEOUT_MS });
@@ -152,9 +157,8 @@ async function probe(src) {
   }
 }
 
-// Last full sweep, exposed via /api/health. Purely observational — nothing in
-// the collection path reads this, so a slow or failed sweep can never affect
-// data collection.
+// Last sweep, exposed via /api/health. Observational only — nothing in the
+// collection path reads it, so a slow sweep can never affect data.
 let lastSweep = { at: null, results: [] };
 let sweepInFlight = false;
 
@@ -163,9 +167,8 @@ async function runMonitorSweep() {
   sweepInFlight = true;
   try {
     const results = [];
-    // Series, not parallel: probes are cheap (an empty feed is 15 bytes) and we
-    // would rather take a few extra seconds than open 14 simultaneous
-    // connections to a government API we do not control.
+    // Series, not parallel — cheap probes, and no reason to open 14 concurrent
+    // connections to a government API.
     for (const src of SOURCES) {
       const vehicles = await probe(src);
       results.push({ id: src.id, label: src.label, region: src.region, vehicles });
@@ -182,11 +185,8 @@ async function runMonitorSweep() {
       console.warn(`[monitor] unreachable: ${unreachable.map((r) => r.id).join(", ")}`);
     }
 
-    // The one line worth reading. A source at zero proves nothing on its own —
-    // every Malaysian feed drains overnight — but a source at zero WHILE its
-    // siblings are busy is an upstream outage, which is exactly the state that
-    // went unnoticed from 2026-08-06 to 2026-08-15. Only warn about feeds this
-    // process could actually collect; the rest are context, not our problem.
+    // Zero proves nothing alone (every feed drains overnight), but zero WHILE
+    // the siblings are busy is an outage. This is the alert that was missing.
     const others = results.filter((r) => !COLLECTABLE.some((c) => c.id === r.id));
     const othersAlive = others.filter((r) => r.vehicles > 0).length;
     for (const src of COLLECTABLE) {
@@ -205,10 +205,23 @@ async function runMonitorSweep() {
   }
 }
 
-function startMonitor() {
+// onCandidate(src) is invoked after each sweep when auto-switch wants to move.
+// It is NOT applied here: the caller decides when it is safe to swap (server.js
+// stages it and applies it synchronously at the top of the next tick, so a
+// switch can never land mid-tick).
+function startMonitor(onCandidate) {
+  const sweepThenDecide = () =>
+    runMonitorSweep()
+      .then((sweep) => {
+        if (!onCandidate) return;
+        const next = switchCandidate(sweep.results);
+        if (next) onCandidate(next);
+      })
+      .catch(() => {});
+
   // Kick one off shortly after boot so /api/health has data early, then repeat.
-  const first = setTimeout(() => runMonitorSweep().catch(() => {}), 20_000);
-  const timer = setInterval(() => runMonitorSweep().catch(() => {}), MONITOR_INTERVAL_MS);
+  const first = setTimeout(sweepThenDecide, 20_000);
+  const timer = setInterval(sweepThenDecide, MONITOR_INTERVAL_MS);
   if (first.unref) first.unref();
   if (timer.unref) timer.unref();
   return timer;
@@ -218,15 +231,17 @@ function monitorStatus() {
   return {
     last_sweep_ms: lastSweep.at,
     sources: lastSweep.results,
+    pinned: PINNED.id,
+    pinned_explicit: PINNED_EXPLICIT,
+    switch_count: switchCount,
+    last_switch_ms: lastSwitchMs,
   };
 }
 
 // ── Minimal ZIP reader ──────────────────────────────────────────────────────
-// The static GTFS feeds are ZIP archives and the project has no unzip
-// dependency (and deliberately does not add one — see the npm-install policy in
-// CLAUDE.md). Everything below uses only built-in zlib. It walks the central
-// directory rather than scanning for local-header signatures, because entries
-// written with a data descriptor carry zeroed sizes in the local header.
+// Static GTFS feeds are ZIPs and this project adds no unzip dependency, so this
+// uses built-in zlib only. Walks the central directory rather than scanning for
+// local headers, since data-descriptor entries have zeroed local sizes.
 function readZipEntries(buf) {
   const EOCD_SIG = 0x06054b50;
   let eocd = -1;
@@ -305,6 +320,9 @@ module.exports = {
   SOURCES,
   COLLECTABLE,
   PRIMARY,
+  PINNED,
+  switchCandidate,
+  setActive,
   activeSource,
   isPrimary,
   byId,

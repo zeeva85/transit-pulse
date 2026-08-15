@@ -114,46 +114,17 @@ const config = {
   STALE_AGE_THRESHOLD_S:    90,
 
   // ── Feed source registry ─────────────────────────────────────────────────────
-  // Used by: feed-sources.js (source selection + monitoring), server.js.
+  // Used by: feed-sources.js.
   //
-  // WHY THIS EXISTS: on 2026-08-06 at 13:59 KL the upstream rapid-bus-kl
-  // vehicle-position feed stopped returning vehicles. It kept answering HTTP 200
-  // with a structurally valid, entity-less FeedMessage, so nothing errored and
-  // nothing alerted — the app simply collected zero rows for over two months
-  // before anyone noticed. Two other developers hit the same wall on 2026-08-13
-  // (data-gov-my/datagovmy-front#659); an identical outage from 2026-03-29
-  // (#638) is still unanswered.
+  // `kl: true` marks the two Kuala Lumpur bus feeds — the only ones FEED_SOURCE
+  // may select, since everything in this app is KL. Every entry is still
+  // monitored, because a feed reading zero only means something compared
+  // against its siblings (they all drain overnight).
   //
-  // The registry has TWO ROLES, and the `kl` flag is what separates them:
-  //
-  //   1. COLLECTABLE (`kl: true`). Only these can be selected by the
-  //      FEED_SOURCE env var. This app is a Kuala Lumpur bus tracker — its
-  //      map, static GTFS, speed baselines, cross-day position model and every
-  //      analytic in it are KL. Collecting Penang would not repair KL
-  //      analytics, it would only pollute them. Two sources qualify:
-  //      rapid-bus-kl (trunk network) and rapid-bus-mrtfeeder (the T-prefixed
-  //      MRT feeder network, same operator, same Klang Valley coverage).
-  //      `ktmb` is rail and national, so it is monitored but not collectable.
-  //
-  //   2. MONITORED (all of them). The monitor sweeps every entry and reports
-  //      vehicle counts to /api/health. Keeping the non-KL feeds here costs
-  //      almost nothing (an empty feed is 15 bytes, swept every 10 min) and is
-  //      what makes the diagnosis possible at all: on 2026-08-15 08:07 KL the
-  //      sweep read rapid-bus-kl = 0 while all 13 siblings carried 24-153
-  //      buses. Without the comparison you cannot tell "our feed is broken"
-  //      from "it is 3 a.m. and nothing is running" — every Malaysian feed
-  //      legitimately drains to zero overnight.
-  //
-  // It is NOT an automatic failover chain. Runtime source-swapping was built
-  // and removed — see the long note at the top of feed-sources.js. To collect
-  // another city, run another process with its own DATA_DIR.
-  //
-  // `path` is the URL suffix shared by BOTH api.data.gov.my endpoints:
-  //     realtime → https://api.data.gov.my/gtfs-realtime/vehicle-position/<path>
-  //     static   → https://api.data.gov.my/gtfs-static/<path>
-  // `region` is informational (shown in /api/health).
-  // NOTE: `rapid-bus-kuantan` is documented by data.gov.my but now returns
-  // HTTP 404 — deliberately omitted rather than left in to fail every probe.
+  // NOT a failover chain. Runtime source-swapping was built and removed; see
+  // CLAUDE.md. `path` is the suffix shared by both api.data.gov.my endpoints
+  // (gtfs-realtime/vehicle-position/<path> and gtfs-static/<path>).
+  // `rapid-bus-kuantan` is documented upstream but 404s, so it is omitted.
   FEED_SOURCES: [
     { id: "rapid-bus-kl",           label: "Rapid Bus KL",          region: "Kuala Lumpur", path: "prasarana?category=rapid-bus-kl", kl: true },
     { id: "rapid-bus-mrtfeeder",    label: "MRT Feeder Bus",        region: "Kuala Lumpur", path: "prasarana?category=rapid-bus-mrtfeeder", kl: true },
@@ -170,16 +141,15 @@ const config = {
     { id: "mybas-kuching",          label: "BAS.MY Kuching",        region: "Sarawak",      path: "mybas-kuching" },
     { id: "ktmb",                   label: "KTMB Komuter",          region: "National (rail)", path: "ktmb" },
   ],
-  // FEED_MONITOR_INTERVAL_MS: how often to sweep EVERY source and report its
-  //   vehicle count to /api/health. Purely observational — the collector never
-  //   changes source at runtime (see the long note at the top of
-  //   feed-sources.js). This sweep is the actual fix for the 2026-08-06
-  //   incident: it makes a silent feed visible within minutes instead of two
-  //   months. Keep it modest; 14 serial probes run on each sweep.
-  // FEED_PROBE_TIMEOUT_MS: per-probe timeout. Probes are cheap (an empty feed
-  //   is 15 bytes) but run in series across all sources, so keep it short.
-  FEED_MONITOR_INTERVAL_MS: 10 * 60_000,
-  FEED_PROBE_TIMEOUT_MS:    8_000,
+  // FEED_MONITOR_INTERVAL_MS: how often to sweep every source and report its
+  //   vehicle count to /api/health. 14 serial probes per sweep, so keep modest.
+  // FEED_PROBE_TIMEOUT_MS: per-probe timeout; probes run in series.
+  // FEED_MIN_VEHICLES_TO_SWITCH: a KL sibling must carry at least this many
+  //   buses before auto-switch moves to it. Both KL feeds drain to zero
+  //   overnight, so "more than zero" would flap nightly on one straggler.
+  FEED_MONITOR_INTERVAL_MS:    10 * 60_000,
+  FEED_PROBE_TIMEOUT_MS:       8_000,
+  FEED_MIN_VEHICLES_TO_SWITCH: 10,
 
   // ── Position history (live trail) ───────────────────────────────────────────
   // Used by: server.js (positionHistory deque, trail rendering).
