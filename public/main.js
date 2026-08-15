@@ -258,18 +258,7 @@ async function fetchBuses() {
     state.buses.length.toLocaleString();
   document.getElementById("route-count").textContent = routeCount;
 
-  // Median speed of moving buses (respects the selected speed mode) — shown
-  // as a header chip beside buses/routes.
-  const medianEl = document.getElementById("median-speed");
-  if (medianEl) {
-    const speeds = state.buses
-      .map((b) => effectiveSpeed(b))
-      .filter((v) => Number.isFinite(v) && v > 0)
-      .sort((a, b) => a - b);
-    medianEl.textContent = speeds.length
-      ? Math.round(speeds[Math.floor(speeds.length / 2)])
-      : "—";
-  }
+  updateMedianOverlay();
   const mapDateLabel = document.getElementById("map-date-label");
   mapDateLabel.textContent = data.is_historical
     ? `(Viewing ${data.date})`
@@ -432,6 +421,38 @@ function updateClusterStatus(data, errMsg) {
 // comment). `state.speedSource` carries internal mode short-names mapped to
 // schema columns: raw → `speed`, calc → `calculated_speed`, trust →
 // `weighted_speed`, others pass through unchanged.
+// Map-corner median readout. The value is the median over MOVING buses of
+// whichever estimator the "Speed Display Mode" dropdown selects — the label
+// names it explicitly so the number is never ambiguous.
+const SPEED_MODE_LABELS = {
+  raw: "raw GPS",
+  corrected: "corrected GPS",
+  calc: "calculated",
+  kalman: "Kalman",
+  trust: "trust-weighted",
+};
+
+function updateMedianOverlay() {
+  const box = document.getElementById("median-overlay");
+  if (!box) return;
+  const speeds = state.buses
+    .map((b) => effectiveSpeed(b))
+    .filter((v) => Number.isFinite(v) && v > 0)
+    .sort((a, b) => a - b);
+  // Hidden in historical mode: state.buses there holds each bus's LAST known
+  // point of the day, and a median over those is not a meaningful statistic.
+  if (isHistoricalDate() || !speeds.length) {
+    box.hidden = true;
+    return;
+  }
+  document.getElementById("median-speed").textContent = Math.round(
+    speeds[Math.floor(speeds.length / 2)]
+  );
+  document.getElementById("median-mode").textContent =
+    `median · ${SPEED_MODE_LABELS[state.speedSource] || state.speedSource} · moving buses`;
+  box.hidden = false;
+}
+
 function effectiveSpeed(bus) {
   switch (state.speedSource) {
     case "raw":
@@ -1736,6 +1757,7 @@ function syncCorrectionMethodVisibility() {
 document.getElementById("speed-source").addEventListener("change", (e) => {
   state.speedSource = e.target.value;
   syncCorrectionMethodVisibility();
+  updateMedianOverlay();
   rebuildLayers();
   if (window.busTable) {
     window.busTable.render(state.buses);
@@ -2081,11 +2103,10 @@ function bindHistoricalControls() {
   });
 }
 
-// ── Service-day progress + bus-art colour ────────────────────────────────────
-// Service window: 05:00 → 01:30 KL (next calendar day). The ASCII bus art
-// turns green when buses are running, red when the last service has ended.
-// A thin road strip at the bottom of the header fills left-to-right over the
-// service day so you can see at a glance how far through the day we are.
+// ── Service-day progress ─────────────────────────────────────────────────────
+// Service window: 05:00 → 01:30 KL (next calendar day). A thin road strip at
+// the bottom of the header fills left-to-right over the service day, green
+// while buses run and red after the last service.
 function updateBusArtStatus() {
   const now = new Date();
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -2114,13 +2135,6 @@ function updateBusArtStatus() {
   // When auto-switched to historical (live feed returned 0 buses), show the
   // ended state regardless of clock time — the two signals must agree.
   const effectiveActive = isActive && !state.autoSwitchedToHistorical;
-
-  // Colour the ASCII bus art.
-  const busArt = document.querySelector(".bus-art");
-  if (busArt) {
-    busArt.classList.toggle("bus-art--active", effectiveActive);
-    busArt.classList.toggle("bus-art--ended",  !effectiveActive);
-  }
 
   // Move the road fill.
   const fill = document.getElementById("bus-day-fill");
@@ -2362,7 +2376,7 @@ function bindNewSidebarControls() {
   }
   pollFeedEmpty();
 
-  // Kick off bus-art status and update every minute.
+  // Service-day road strip, updated every minute.
   updateBusArtStatus();
   setInterval(updateBusArtStatus, 60_000);
 }
@@ -2438,9 +2452,8 @@ function bindNewSidebarControls() {
   const FADE_MS    = 400;
   const mq         = window.matchMedia("(max-width: 768px)");
   const meta       = document.querySelector(".header-brand-meta");
-  const art        = document.querySelector(".bus-art");
   const weatherEl  = document.getElementById("header-weather");
-  if (!meta || !art || !weatherEl) return;
+  if (!meta || !weatherEl) return;
 
   // Populate weather widget — shared by both paths. Refreshes every 5 min so
   // the displayed conditions track WeatherAPI's real-time current reading.
@@ -2515,29 +2528,27 @@ function bindNewSidebarControls() {
 
   if (!mq.matches) {
     // ── DESKTOP ──────────────────────────────────────────────────────────
-    // Weather on immediately, brand fades at 5s, bus art fades in. Done.
+    // Brand stays put; weather sits beside it. (The old rotation faded the
+    // brand out after 5s and replaced it with ASCII art — removed.)
     fadeIn(weatherEl, "grid");
-    setTimeout(() => {
-      fadeOut(meta, () => fadeIn(art, "block"));
-    }, 5000);
 
   } else {
     // ── MOBILE ───────────────────────────────────────────────────────────
-    // brand(3s) → weather(5s) → bus(5s) → loop weather↔bus forever
+    // Not enough width for both, so alternate brand(5s) ↔ weather(5s).
     const SLOT_MS = 5000;
 
     function showWeather() {
       fadeIn(weatherEl, "grid", () => {
-        setTimeout(() => fadeOut(weatherEl, showArt), SLOT_MS);
+        setTimeout(() => fadeOut(weatherEl, showBrand), SLOT_MS);
       });
     }
-    function showArt() {
-      fadeIn(art, "block", () => {
-        setTimeout(() => fadeOut(art, showWeather), SLOT_MS);
+    function showBrand() {
+      fadeIn(meta, "flex", () => {
+        setTimeout(() => fadeOut(meta, showWeather), SLOT_MS);
       });
     }
 
-    setTimeout(() => fadeOut(meta, showWeather), 3000);
+    setTimeout(() => fadeOut(meta, showWeather), SLOT_MS);
   }
 })();
 

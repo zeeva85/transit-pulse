@@ -88,16 +88,6 @@ header {
   background: #e05a5a;
   box-shadow: 0 0 5px rgba(224,90,90,0.7);
 }
-.bus-art.bus-art--active {
-  color: #2dba4e;
-  text-shadow: 0 0 8px rgba(45,186,78,0.55), 0 0 2px rgba(255,255,255,0.7);
-}
-.bus-art.bus-art--ended {
-  color: #e05a5a;
-  text-shadow: 0 0 8px rgba(224,90,90,0.55), 0 0 2px rgba(255,255,255,0.4);
-}
-body.light-mode .bus-art.bus-art--active { color: #1a7a2e; text-shadow: none; }
-body.light-mode .bus-art.bus-art--ended  { color: #cc2222; text-shadow: none; }
 .header-right {
   display: flex;
   align-items: center;
@@ -150,17 +140,6 @@ body.historical .live-dot {
   font-size: 11px;
   color: var(--ink-3);
   opacity: 0.75;
-}
-.bus-art {
-  margin: 0;
-  align-self: center;
-  font-family: "Courier New", Courier, monospace;
-  font-size: 6px;
-  font-weight: bold;
-  line-height: 1.15;
-  color: #ffffff;
-  letter-spacing: 0.02em;
-  text-shadow: 0 0 6px rgba(255, 255, 255, 0.3);
 }
 #header-weather {
   display: grid;
@@ -241,7 +220,6 @@ body.light-mode .header-updated { color: var(--ink-3); }
 body.light-mode .header-stats { color: var(--ink-3); }
 body.light-mode .header-stats strong { color: var(--ink); }
 body.light-mode .hstat-label { color: var(--ink-3); }
-body.light-mode .bus-art { color: #222; text-shadow: none; }
 body.light-mode .theme-toggle-btn {
   border-color: var(--border);
 }
@@ -1694,3 +1672,41 @@ input:focus-visible {
 .cap-grad--fade {
   background: linear-gradient(90deg, rgba(121,184,255,0.12), rgba(121,184,255,1));
 }
+
+/* ==================== Map median readout (top-right) ==================== */
+.median-overlay {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 5;
+  background: rgba(17, 22, 29, 0.72);
+  backdrop-filter: blur(8px) saturate(140%);
+  -webkit-backdrop-filter: blur(8px) saturate(140%);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 12px 8px;
+  pointer-events: none;
+  text-align: right;
+}
+.median-overlay[hidden] { display: none; }
+.mo-value {
+  font-size: 22px;
+  font-weight: 650;
+  line-height: 1;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.mo-unit { font-size: 11px; color: var(--ink-3); }
+.mo-label {
+  display: block;
+  margin-top: 3px;
+  font-size: 9px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+body.light-mode .median-overlay { background: rgba(255,255,255,0.92); }
+/* Cluster chips share the corner — drop them below when the readout shows. */
+#map:has(.median-overlay:not([hidden])) #cluster-filter { top: 68px; }
