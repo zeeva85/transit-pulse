@@ -258,21 +258,17 @@ async function fetchBuses() {
     state.buses.length.toLocaleString();
   document.getElementById("route-count").textContent = routeCount;
 
-  // KPI band — headline numbers above the map.
-  const kpiBuses = document.getElementById("kpi-buses");
-  if (kpiBuses) {
-    kpiBuses.textContent = state.buses.length.toLocaleString();
-    document.getElementById("kpi-routes").textContent = routeCount;
+  // Median speed of moving buses (respects the selected speed mode) — shown
+  // as a header chip beside buses/routes.
+  const medianEl = document.getElementById("median-speed");
+  if (medianEl) {
     const speeds = state.buses
       .map((b) => effectiveSpeed(b))
       .filter((v) => Number.isFinite(v) && v > 0)
       .sort((a, b) => a - b);
-    document.getElementById("kpi-speed").textContent = speeds.length
+    medianEl.textContent = speeds.length
       ? Math.round(speeds[Math.floor(speeds.length / 2)])
       : "—";
-    if (data.is_historical) {
-      document.getElementById("kpi-source").textContent = `Viewing ${data.date}`;
-    }
   }
   const mapDateLabel = document.getElementById("map-date-label");
   mapDateLabel.textContent = data.is_historical
@@ -2330,11 +2326,10 @@ function bindNewSidebarControls() {
     try {
       const res = await fetch("/api/health");
       const data = await res.json();
-      // KPI band: name the feed actually being collected (live mode only —
-      // historical mode overwrites this with "Viewing <date>" on each fetch).
-      const kpiSource = document.getElementById("kpi-source");
-      if (kpiSource && data.feed_source && !isHistoricalDate()) {
-        kpiSource.textContent = data.feed_source.label || data.feed_source.id;
+      // Header status chip: name the feed actually being collected.
+      const feedNameEl = document.getElementById("feed-name");
+      if (feedNameEl && data.feed_source) {
+        feedNameEl.textContent = data.feed_source.label || data.feed_source.id;
       }
       if (feedEmptyBanner) {
         if (data.feed_empty_count > 0 && !isHistoricalDate()) {

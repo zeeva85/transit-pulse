@@ -180,7 +180,20 @@ body.light-mode #wx-temp   { color: #d97706; }
 body.light-mode #wx-cond   { color: var(--ink-2); }
 body.light-mode #wx-precip { color: #000000; }
 body.light-mode #wx-wind   { color: #000000; }
-.header-date { font-size: 11.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; letter-spacing: 0.01em; }
+.header-date { font-size: 11.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; letter-spacing: 0.01em; }
+.feed-name {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink-2);
+  max-width: 180px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.feed-name:not(:empty)::after { content: "·"; margin-left: 6px; color: var(--ink-3); opacity: 0.6; }
+/* Historical mode shows the viewed date via the map label; the live-feed name
+   would be misleading there. */
+body.historical .feed-name { display: none; }
 .header-stats {
   display: flex;
   gap: 8px;
@@ -550,13 +563,13 @@ body.light-mode .date-cal-day.selected { background: #c0deff !important; color: 
 /* Map left, table right — both live and historical */
 #content-col {
   grid-column: 1;
-  grid-row: 2;
+  grid-row: 1;
   min-width: 0;
 }
 
 #table-section {
   grid-column: 2;
-  grid-row: 2;
+  grid-row: 1;
   align-self: start;
   display: flex;
   flex-direction: column;
@@ -1458,6 +1471,7 @@ body.light-mode #trip-origin:focus, body.light-mode #trip-destination:focus {
   #main { grid-template-columns: 1fr; grid-template-rows: auto auto; padding: 10px; column-gap: 0; row-gap: 14px; }
   #content-col   { grid-column: 1; grid-row: 1; }
   #table-section { grid-column: 1; grid-row: 2; position: static; align-self: start; }
+
   #table-section .bus-table-wrap { flex: none; height: 280px; max-height: none; }
   #heatmap-section, #timeline-section { grid-column: 1; }
 
@@ -1576,69 +1590,19 @@ input:focus-visible {
 /* Numeric text is always tabular */
 .stat-value, .header-stats strong, .bus-table-search-count { font-variant-numeric: tabular-nums; }
 
-/* ==================== KPI band ==================== */
-#kpi-band {
-  grid-column: 1 / -1;
-  grid-row: 1;
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 14px;
-  background: transparent;
-  border: none;
-  padding: 0;
-}
-#kpi-band .kpi {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-card);
-  padding: 13px 18px 14px;
-  min-width: 0;
-}
-.kpi-label {
-  font-size: 10px;
-  font-weight: 650;
-  text-transform: uppercase;
-  letter-spacing: 0.09em;
-  color: var(--ink-3);
-  margin-bottom: 4px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.kpi-note { opacity: 0.6; font-weight: 400; letter-spacing: 0.05em; }
-.kpi-value {
-  font-size: 26px;
-  font-weight: 650;
-  line-height: 1.15;
-  color: var(--ink);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -0.01em;
-}
-.kpi-unit { font-size: 12px; font-weight: 500; color: var(--ink-3); letter-spacing: 0; }
-.kpi-value--sm {
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1.3;
-  padding-top: 5px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-@media (max-width: 768px) {
-  #kpi-band { grid-row: 1; grid-column: 1; grid-template-columns: 1fr 1fr; gap: 8px; }
-  #kpi-band .kpi { padding: 10px 14px 11px; }
-  .kpi-value { font-size: 21px; }
-  #content-col { grid-row: 2; }
-  #table-section { grid-row: 3; }
-}
 
 /* ================================================================
    MOBILE UX PASS (≤ 768 px)
    ================================================================ */
 @media (max-width: 768px) {
-  /* Header: drop the stat chips — the KPI band directly below shows the
-     same numbers, and five items don't fit a 64px bar on a 390px phone. */
-  .header-stats { display: none; }
+  /* Compact chips: keep buses + median, drop routes (least useful on a
+     phone), shorten the median label via CSS. */
+  .hstat--routes { display: none; }
+  .hstat { padding: 3px 8px; }
+  .header-stats { gap: 5px; }
+  .header-stats strong { font-size: 12px; }
+  .hstat-label { font-size: 10px; }
+  .feed-name { max-width: 90px; }
 
   /* The map is the product on a phone — make it the hero, not a letterbox. */
   #map { height: 52vh; min-height: 300px; max-height: none; }

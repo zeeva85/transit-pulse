@@ -33,6 +33,7 @@
         <h1><span class="brand-accent">KL.my</span> Bus Tracker</h1>
         <span class="header-status">
           <span class="live-dot" aria-hidden="true"></span>
+          <span id="feed-name" class="feed-name"></span>
           <span id="header-date" class="header-date">—</span>
         </span>
       </div>
@@ -55,7 +56,8 @@
     <div class="header-right">
       <div class="header-stats">
         <span class="hstat"><strong id="bus-count">—</strong><span class="hstat-label">buses</span></span>
-        <span class="hstat"><strong id="route-count">—</strong><span class="hstat-label">routes</span></span>
+        <span class="hstat hstat--routes"><strong id="route-count">—</strong><span class="hstat-label">routes</span></span>
+        <span class="hstat"><strong id="median-speed">—</strong><span class="hstat-label">km/h median</span></span>
       </div>
       <button id="mobile-sidebar-btn" class="hamburger-btn" type="button" title="Filters &amp; controls" aria-label="Open filters and controls">&#8942;</button>
       <button id="theme-toggle" class="theme-toggle-btn" type="button" title="Toggle light/dark mode" aria-label="Toggle light and dark mode">
@@ -287,24 +289,6 @@
 
   <main id="main">
 
-    <section id="kpi-band" aria-label="Network summary">
-      <div class="kpi">
-        <div class="kpi-label">Buses</div>
-        <div class="kpi-value"><span id="kpi-buses">—</span></div>
-      </div>
-      <div class="kpi">
-        <div class="kpi-label">Routes</div>
-        <div class="kpi-value"><span id="kpi-routes">—</span></div>
-      </div>
-      <div class="kpi">
-        <div class="kpi-label">Median speed <span class="kpi-note">moving</span></div>
-        <div class="kpi-value"><span id="kpi-speed">—</span><span class="kpi-unit"> km/h</span></div>
-      </div>
-      <div class="kpi">
-        <div class="kpi-label">Data feed</div>
-        <div class="kpi-value kpi-value--sm" id="kpi-source">—</div>
-      </div>
-    </section>
 
     <section id="table-section">
       <h2 class="section-title">Bus Table</h2>
@@ -365,6 +349,35 @@
 
     </div><!-- #content-col -->
 
+    <section id="heatmap-section">
+      <h2 class="section-title">Median speed heatmap</h2>
+      <div class="heatmap-toolbar">
+        <label>
+          Mode
+          <select id="heatmap-mode">
+            <option value="trust" selected>Trust-Weighted</option>
+            <option value="kalman">Kalman (EKF)</option>
+            <option value="corrected">Corrected GPS</option>
+            <option value="calc">Calculated (Haversine / dt)</option>
+            <option value="raw">Raw GTFS</option>
+          </select>
+        </label>
+        <label>
+          Anchor
+          <select id="heatmap-anchor">
+            <option value="physical" selected>Physical</option>
+            <option value="pooled">Pooled median</option>
+          </select>
+        </label>
+        <label>
+          <input id="heatmap-stack" type="checkbox" />
+          Stack all 5 modes
+        </label>
+        <span id="heatmap-status" class="meta">accumulating samples…</span>
+      </div>
+      <div id="heatmap-chart"></div>
+    </section>
+
     <section id="timeline-section">
       <div class="card-head">
         <h2 class="section-title">Bus Timeline</h2>
@@ -394,35 +407,6 @@
       <div id="timeline-empty-bottom" class="meta" style="padding: 30px; text-align: center;">
         Select a bus from the dropdown above to view its detailed timeline.
       </div>
-    </section>
-
-    <section id="heatmap-section">
-      <h2 class="section-title">Median speed heatmap</h2>
-      <div class="heatmap-toolbar">
-        <label>
-          Mode
-          <select id="heatmap-mode">
-            <option value="trust" selected>Trust-Weighted</option>
-            <option value="kalman">Kalman (EKF)</option>
-            <option value="corrected">Corrected GPS</option>
-            <option value="calc">Calculated (Haversine / dt)</option>
-            <option value="raw">Raw GTFS</option>
-          </select>
-        </label>
-        <label>
-          Anchor
-          <select id="heatmap-anchor">
-            <option value="physical" selected>Physical</option>
-            <option value="pooled">Pooled median</option>
-          </select>
-        </label>
-        <label>
-          <input id="heatmap-stack" type="checkbox" />
-          Stack all 5 modes
-        </label>
-        <span id="heatmap-status" class="meta">accumulating samples…</span>
-      </div>
-      <div id="heatmap-chart"></div>
     </section>
 
   </main>
