@@ -7,6 +7,9 @@
     document.body.classList.toggle('light-mode', light);
     if (sun)  sun.style.display  = light ? 'none' : '';
     if (moon) moon.style.display = light ? ''     : 'none';
+    // Charts read their colors from CSS tokens at render time; tell them to
+    // redraw when the theme flips.
+    window.dispatchEvent(new CustomEvent('themechange', { detail: { light } }));
   }
 
   applyTheme(localStorage.getItem('theme') === 'light');

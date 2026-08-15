@@ -118,20 +118,35 @@
       });
   }
 
+  // Chart colors come from the page's CSS tokens so light/dark always match
+  // the surrounding card — the old hardcoded dark values were unreadable on
+  // the light theme (grey axis text and a dark tooltip on a white card).
+  function ink(name, fallback) {
+    const v = getComputedStyle(document.body).getPropertyValue(name).trim();
+    return v || fallback;
+  }
+
   function buildChartOption(bus, modeLabel, points) {
+    const cInk = ink("--ink", "#e6e6e6");
+    const cInk2 = ink("--ink-2", "#c9d1d9");
+    const cInk3 = ink("--ink-3", "#8b949e");
+    const cSurface = ink("--surface", "#161b22");
+    const cBorder = ink("--border", "#2a2f3a");
+    const cGrid = ink("--border-soft", "#21262d");
+    const cAccent = ink("--accent", "#79b8ff");
     return {
       animation: false,
       title: {
         text: `Bus ${bus.bus_id} · ${bus.route || "Unknown"}`,
-        textStyle: { color: "#cdd0d4", fontSize: 12, fontWeight: 400 },
+        textStyle: { color: cInk2, fontSize: 12, fontWeight: 400 },
         top: 6,
         left: 14,
       },
       tooltip: {
         trigger: "axis",
-        backgroundColor: "#161b22",
-        borderColor: "#2a2f3a",
-        textStyle: { color: "#e6e6e6", fontSize: 12 },
+        backgroundColor: cSurface,
+        borderColor: cBorder,
+        textStyle: { color: cInk, fontSize: 12 },
         formatter: (params) => {
           const p = params[0];
           const t = new Date(p.value[0]);
@@ -145,7 +160,7 @@
       xAxis: {
         type: "time",
         axisLabel: {
-          color: "#a0a0a0",
+          color: cInk3,
           fontSize: 10,
           formatter: (val) =>
             new Date(val).toLocaleTimeString([], {
@@ -154,17 +169,17 @@
               minute: "2-digit",
             }),
         },
-        axisLine: { lineStyle: { color: "#2a2f3a" } },
+        axisLine: { lineStyle: { color: cBorder } },
       },
       yAxis: {
         type: "value",
         name: `${modeLabel} (km/h)`,
         nameLocation: "middle",
         nameGap: 35,
-        nameTextStyle: { color: "#79b8ff", fontSize: 11 },
+        nameTextStyle: { color: cAccent, fontSize: 11 },
         min: 0,
-        axisLabel: { color: "#a0a0a0", fontSize: 10 },
-        splitLine: { lineStyle: { color: "#21262d" } },
+        axisLabel: { color: cInk3, fontSize: 10 },
+        splitLine: { lineStyle: { color: cGrid } },
       },
       series: [
         {
@@ -172,8 +187,8 @@
           data: points,
           showSymbol: points.length < 60,
           symbolSize: 4,
-          lineStyle: { color: "#79b8ff", width: 2 },
-          itemStyle: { color: "#79b8ff" },
+          lineStyle: { color: cAccent, width: 2 },
+          itemStyle: { color: cAccent },
           areaStyle: { color: "rgba(121, 184, 255, 0.12)" },
         },
       ],
@@ -212,7 +227,13 @@
   // active speed-source setting in the parent app. `mode` is the active
   // speed-source key (raw/corrected/calc/kalman/trust) for the
   // server-binned path.
+  let lastRender = null;
+  window.addEventListener("themechange", () => {
+    if (lastRender) render(...lastRender);
+  });
+
   function render(bus, modeLabel, getSpeed, mode) {
+    lastRender = [bus, modeLabel, getSpeed, mode];
     const sb = bus && bus.sparkline_bins && bus.sparkline_bins.bins && bus.sparkline_bins.bins.length > 0
       ? bus.sparkline_bins
       : null;

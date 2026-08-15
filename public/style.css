@@ -198,7 +198,6 @@ body.light-mode #wx-wind   { color: #000000; }
 }
 .header-stats strong { font-size: 13px; color: var(--ink); font-weight: 650; font-variant-numeric: tabular-nums; }
 .hstat-label { font-size: 11px; color: var(--ink-3); }
-.hstat-sep { display: none; }
 
 .theme-toggle-btn {
   width: 34px;
@@ -267,15 +266,8 @@ body.light-mode #hamburger-panel input[type="range"] {
   color: var(--ink);
   border-color: var(--border);
 }
-body.light-mode .maintenance-btn {
-  background: var(--sel);
-  border-color: var(--accent);
-  color: var(--accent);
-}
-body.light-mode .maintenance-btn:hover { background: #bfdbfe; }
 body.light-mode #main { background: var(--bg); }
 body.light-mode #main h2.section-title { color: var(--ink-3); }
-body.light-mode #main h2.section-title .hint { color: var(--accent); }
 body.light-mode .bus-table-wrap { border-color: var(--border); }
 body.light-mode .bus-table thead th {
   background: var(--surface-2);
@@ -332,7 +324,6 @@ body.light-mode #historical-controls { background: var(--surface); border-color:
 body.light-mode .hour-range { color: var(--ink-3); }
 body.light-mode #heatmap-section { background: var(--surface); border-color: var(--border); }
 body.light-mode .heatmap-toolbar { border-bottom-color: var(--border); }
-body.light-mode .date-chip { background: var(--bg); border-color: var(--border); color: var(--accent); }
 body.light-mode .sidebar-timeline-dropdown {
   background: var(--surface);
   color: var(--ink);
@@ -535,20 +526,6 @@ body.light-mode .date-cal-day.selected { background: #c0deff !important; color: 
   border-top: 1px solid var(--border);
   margin: 16px 0;
 }
-.maintenance-btn {
-  width: 100%;
-  background: var(--sel);
-  color: #fff;
-  border: 1px solid var(--accent);
-  border-radius: 4px;
-  padding: 8px 10px;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  margin-bottom: 8px;
-}
-.maintenance-btn:hover { background: #2a4d7d; }
-.maintenance-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* ==================== Main scroll column ==================== */
 #main {
@@ -609,14 +586,6 @@ body.light-mode .date-cal-day.selected { background: #c0deff !important; color: 
   color: var(--ink-3);
 }
 
-#main h2.section-title .hint {
-  font-size: 11px;
-  color: var(--accent);
-  margin-left: 8px;
-  font-weight: 400;
-  text-transform: none;
-  letter-spacing: 0.01em;
-}
 
 /* Card header row: overline title left, control right */
 .card-head {
@@ -880,14 +849,6 @@ body.map-dimmed #map canvas:not(.maplibregl-canvas) {
 }
 .heatmap-toolbar select:disabled { opacity: 0.5; cursor: not-allowed; }
 .heatmap-toolbar .meta { opacity: 0.55; font-size: 12px; margin-left: auto; }
-.date-chip {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 3px 8px;
-  font-size: 12px;
-  color: var(--accent);
-}
 /* Heatmap container — sized programmatically by public/heatmap.js so each
    cell renders at a fixed 9×6 px (Python busapp/ui/timeline.py:602-605
    parity). The container width grows with route count; when it overflows

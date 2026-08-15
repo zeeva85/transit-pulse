@@ -180,6 +180,14 @@
     return idx >= 0 ? idx : null;
   }
 
+  // Read chart text colors from the page's CSS tokens so both themes work —
+  // the previous hardcoded dark values were invisible on the light theme.
+  function ink(name, fallback) {
+    const v = getComputedStyle(document.body).getPropertyValue(name).trim();
+    return v || fallback;
+  }
+  window.addEventListener("themechange", () => { refresh().catch(() => {}); });
+
   async function refresh() {
     if (!chart) return;
     try {
@@ -230,8 +238,8 @@
             : "The map will populate as soon as buses report.",
           left: "center",
           top: "middle",
-          textStyle: { color: "#cdd0d4", fontSize: 16, fontWeight: 400 },
-          subtextStyle: { color: "#79b8ff", fontSize: 12 },
+          textStyle: { color: ink("--ink-2", "#c9d1d9"), fontSize: 16, fontWeight: 400 },
+          subtextStyle: { color: ink("--accent", "#79b8ff"), fontSize: 12 },
         },
         series: [],
       },
@@ -258,7 +266,7 @@
       itemSymbol: "rect",
       itemWidth: 14,
       itemHeight: 12,
-      textStyle: { color: "#cdd0d4", fontSize: 11 },
+      textStyle: { color: ink("--ink-2", "#c9d1d9"), fontSize: 11 },
       backgroundColor: "transparent",
     };
   }
@@ -351,7 +359,7 @@
         data: routes,
         axisLabel: {
           rotate: -90,
-          color: "#a0a0a0",
+          color: ink("--ink-3", "#8b949e"),
           fontSize: 10,
           interval: 0,
           formatter: (v) => (v.length > 22 ? v.slice(0, 20) + "…" : v),
@@ -364,7 +372,7 @@
         gridIndex: 0,
         type: "category",
         data: yLabels,
-        axisLabel: { color: "#a0a0a0", fontSize: 11 },
+        axisLabel: { color: ink("--ink-3", "#8b949e"), fontSize: 11 },
         axisTick: { show: false },
       },
     ];
@@ -401,7 +409,7 @@
         gridIndex: 1,
         type: "category",
         data: ["cluster"],
-        axisLabel: { color: "#a0a0a0", fontSize: 10 },
+        axisLabel: { color: ink("--ink-3", "#8b949e"), fontSize: 10 },
         axisTick: { show: false },
       });
       series.push({
@@ -426,9 +434,9 @@
         animation: false,
         tooltip: {
           position: "top",
-          backgroundColor: "#161b22",
-          borderColor: "#2a2f3a",
-          textStyle: { color: "#e6e6e6", fontSize: 12 },
+          backgroundColor: ink("--surface", "#161b22"),
+          borderColor: ink("--border", "#2a2f3a"),
+          textStyle: { color: ink("--ink", "#e6e6e6"), fontSize: 12 },
           formatter: (params) => {
             if (params.seriesName === "cluster") {
               return `<b>${routes[params.value[0]]}</b><br/>${params.value[2]}`;
@@ -537,7 +545,7 @@
           i === facets - 1 && !cluster
             ? {
                 rotate: -90,
-                color: "#a0a0a0",
+                color: ink("--ink-3", "#8b949e"),
                 fontSize: 9,
                 interval: 0,
                 formatter: (v) => (v.length > 22 ? v.slice(0, 20) + "…" : v),
@@ -553,7 +561,7 @@
         nameLocation: "middle",
         nameGap: 35,
         nameTextStyle: { color: "#79b8ff", fontSize: 11, fontWeight: 600 },
-        axisLabel: { color: "#a0a0a0", fontSize: 9 },
+        axisLabel: { color: ink("--ink-3", "#8b949e"), fontSize: 9 },
         axisTick: { show: false },
       });
       series.push({
@@ -581,7 +589,7 @@
         data: routes,
         axisLabel: {
           rotate: -90,
-          color: "#a0a0a0",
+          color: ink("--ink-3", "#8b949e"),
           fontSize: 9,
           interval: 0,
           formatter: (v) => (v.length > 22 ? v.slice(0, 20) + "…" : v),
@@ -592,7 +600,7 @@
         gridIndex: stripeIdx,
         type: "category",
         data: ["cluster"],
-        axisLabel: { color: "#a0a0a0", fontSize: 9 },
+        axisLabel: { color: ink("--ink-3", "#8b949e"), fontSize: 9 },
         axisTick: { show: false },
       });
       series.push({
@@ -617,9 +625,9 @@
         animation: false,
         tooltip: {
           position: "top",
-          backgroundColor: "#161b22",
-          borderColor: "#2a2f3a",
-          textStyle: { color: "#e6e6e6", fontSize: 12 },
+          backgroundColor: ink("--surface", "#161b22"),
+          borderColor: ink("--border", "#2a2f3a"),
+          textStyle: { color: ink("--ink", "#e6e6e6"), fontSize: 12 },
           formatter: (params) => {
             if (params.seriesName === "cluster") {
               return `<b>${routes[params.value[0]]}</b><br/>${params.value[2]}`;
