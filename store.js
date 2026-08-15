@@ -16,9 +16,28 @@
 const fs = require("fs");
 const path = require("path");
 const readline = require("readline");
-const { STORE_STREAM_IDLE_CLOSE_MS } = require("./config");
+const { STORE_STREAM_IDLE_CLOSE_MS, FEED_SOURCES } = require("./config");
 
-const DATA_DIR = path.join(__dirname, "data");
+// Index 0 of the pool is the preferred/original source (rapid-bus-kl). Used to
+// backfill `feed_source` on rows written before that column existed.
+const DEFAULT_FEED_SOURCE = FEED_SOURCES[0].id;
+
+// Where this process writes its day files. Overridable so a second instance
+// can collect a DIFFERENT feed source into a completely separate directory.
+//
+// This one line is what makes multi-source collection safe. Node module state
+// (the per-bus EKF/trust maps in speeds.js, the live heatmap accumulator, the
+// cross-day model, the learned-shapes accumulator) is per-process, and every
+// history scanner enumerates a single directory. So "one source per process,
+// one directory per process" gives complete isolation for free — no shared
+// maps to namespace, no feed_source filtering to remember in a dozen
+// consumers, no switch to race against. Two agencies can never meet.
+//
+//   FEED_SOURCE=rapid-bus-kl                          -> default, unchanged
+//   FEED_SOURCE=mybas-johor DATA_DIR=./data-johor     -> isolated collector
+const DATA_DIR = process.env.DATA_DIR
+  ? path.resolve(process.env.DATA_DIR)
+  : path.join(__dirname, "data");
 // Read-only source of historical parquet files written by the Python app.
 // Configurable so the JS app can run alongside or independently.
 const HISTORY_DIR = process.env.HISTORY_DIR
@@ -108,7 +127,17 @@ function closeWriter(klDateStr) {
 //
 // Older JSONL files (pre-rename) used `speed_raw / speed_calc / speed_trust /
 // t` — `normalizeRow` below upgrades them transparently on read.
-function appendTick(busId, route, tMs, lat, lon, speeds, trustScore = null, weather = null) {
+function appendTick(
+  busId,
+  route,
+  tMs,
+  lat,
+  lon,
+  speeds,
+  trustScore = null,
+  weather = null,
+  feedSource = null
+) {
   // Route by the CURRENT KL date, not the row's vehicle timestamp (Python
   // parity: busapp persists every row to history/<date.today()>.parquet).
   // In the first ticks after midnight, stale buses still carry pre-midnight
@@ -133,6 +162,14 @@ function appendTick(busId, route, tMs, lat, lon, speeds, trustScore = null, weat
     weather_precip: weather ? weather.precip : null,
     weather_wind:   weather ? weather.wind   : null,
     weather_code:   weather ? weather.code   : null,
+    // Which upstream this row came from (FEED_SOURCES id). Without it, a day
+    // spanning a failover would silently interleave two agencies' buses in one
+    // file, and every downstream consumer — cross-day position model, heatmap
+    // route axis, density cells — would treat Johor and KL vehicles as one
+    // population. Legacy rows have no such tag; normalizeRow backfills them to
+    // the primary source, which is correct because every row written before
+    // this column existed came from rapid-bus-kl.
+    feed_source: feedSource || null,
   };
   getStream(date).write(JSON.stringify(row) + "\n");
 }
@@ -177,6 +214,10 @@ function normalizeRow(row) {
   if (row.weighted_speed == null && row.speed_trust != null) {
     row.weighted_speed = row.speed_trust;
   }
+  // Every row written before the multi-source pool existed came from
+  // rapid-bus-kl, so backfilling the primary id is factually correct rather
+  // than a guess. Keeps downstream consumers free of null-checks.
+  if (row.feed_source == null) row.feed_source = DEFAULT_FEED_SOURCE;
   return row;
 }
 

@@ -39,6 +39,10 @@ function buildSchema(parquet) {
     weather_precip:   { type: "DOUBLE", optional: true },
     weather_wind:     { type: "DOUBLE", optional: true },
     weather_code:     { type: "INT32",  optional: true },
+    // Which upstream in the FEED_SOURCES pool produced the row. Optional so
+    // parquets written before the multi-source pool existed still read back
+    // cleanly; store.js:normalizeRow backfills those to rapid-bus-kl.
+    feed_source:      { type: "UTF8",   optional: true },
   });
 }
 
@@ -102,6 +106,7 @@ async function convertDayToParquet(klDateStr) {
       weather_precip:   toDouble(r.weather_precip),
       weather_wind:     toDouble(r.weather_wind),
       weather_code:     r.weather_code != null ? Math.round(Number(r.weather_code)) : null,
+      feed_source:      r.feed_source != null ? String(r.feed_source) : null,
     });
   }
 

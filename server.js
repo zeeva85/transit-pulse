@@ -16,6 +16,7 @@ const { execSync } = require("child_process");
 const fetch = require("node-fetch");
 const { transit_realtime } = require("gtfs-realtime-bindings");
 const { parse } = require("csv-parse/sync");
+const feedSources = require("./feed-sources");
 const {
   applyEkfFilter,
   computeTrustWeighted,
@@ -79,19 +80,26 @@ const RAILWAY_SHA = process.env.RAILWAY_GIT_COMMIT_SHA;
 if (RAILWAY_SHA && /^[0-9a-f]{7,40}$/i.test(RAILWAY_SHA)) {
   BUILD_VERSION = RAILWAY_SHA.slice(0, 7);
 }
-// Trailing slash after `prasarana` skips data.gov.my's 301 canonicalization
-// redirect (…/prasarana → …/prasarana/), saving one HTTP round-trip per fetch.
+// The upstream URL is no longer a constant — feed-sources.js builds it from
+// whichever source this process was started with (FEED_SOURCE, fixed at boot;
+// see the note at the top of that file). `rtUrl()` keeps the trailing slash
+// after `prasarana`, which skips data.gov.my's 301 canonicalization redirect
+// (…/prasarana → …/prasarana/) and saves one HTTP round-trip per fetch tick.
 // Keep in sync with busapp/config.py URL.
-const FEED_URL =
-  "https://api.data.gov.my/gtfs-realtime/vehicle-position/prasarana/" +
-  "?category=rapid-bus-kl";
 // Upstream feed updates ~every 30 s. The default cache window is 25 s
 // (slightly under) so we don't miss a tick. Clients can pass
 // `?interval=<seconds>` to /api/buses to shift the floor; the effective
 // cache window is `max(25, requestedInterval - 5)` so a 60 s slider gives
 // a 55 s cache. Matches Python's `cache_ttl = max(interval, 30)` model.
 const FEED_CACHE_BASE_MS = config.FEED_CACHE_BASE_MS;
-const GTFS_DIR = path.join(__dirname, "gtfs_static");
+// Static GTFS for THIS process's feed source. Overridable alongside DATA_DIR
+// (see the note in store.js) so a non-KL collector keeps its own routes,
+// shapes and — critically — its own learned-shapes output. Sharing this
+// directory across sources is what would let a Penang route be promoted into
+// KL's extended_shapes.txt and rendered on the KL map.
+const GTFS_DIR = process.env.GTFS_DIR
+  ? path.resolve(process.env.GTFS_DIR)
+  : path.join(__dirname, "gtfs_static");
 
 // Position history sliding window — mirrors Python's MAX_POSITION_HISTORY=20.
 // Each entry is { lat, lon, time (ms epoch), speed, calculated_speed,
@@ -206,8 +214,8 @@ app.get("/config.js", (req, res) => {
 // `optional` skips the warning when the file legitimately doesn't exist
 // yet (e.g. `extended_shapes.txt`, which is generated on demand by the
 // learned-shapes pipeline — see learned-shapes.js).
-function loadCsv(name, { optional = false } = {}) {
-  const file = path.join(GTFS_DIR, name);
+function loadCsv(name, { optional = false, dir = GTFS_DIR } = {}) {
+  const file = path.join(dir, name);
   if (!fs.existsSync(file)) {
     if (!optional) {
       console.warn(
@@ -229,24 +237,55 @@ function loadCsv(name, { optional = false } = {}) {
 // this, freshly promoted LRN_<bus_id> shapes wouldn't render or snap until
 // the next process restart — mirrors Python `load_shape_polylines.clear()`
 // behaviour at the end of `promote_learned_shapes`.
-function loadGtfsStatic() {
-  const routesRows = loadCsv("routes.txt");
-  const tripsRows = loadCsv("trips.txt");
-  const shapesRows = loadCsv("shapes.txt");
+// `dir` defaults to the repo-level gtfs_static/ (the rapid-bus-kl feed plus the
+// learned extended_* files). Fallback feed sources pass their own cache dir —
+// a non-primary collector points GTFS_DIR at its own directory, which holds
+// only routes/trips/shapes, so the optional extended_* loads below no-op.
+function loadGtfsStatic(dir = GTFS_DIR) {
+  const routesRows = loadCsv("routes.txt", { dir });
+  const tripsRows = loadCsv("trips.txt", { dir });
+  const shapesRows = loadCsv("shapes.txt", { dir });
   // Learned shapes — same schema as shapes.txt; concatenated below so
   // downstream loaders treat them uniformly.
-  const extendedShapesRows = loadCsv("extended_shapes.txt", { optional: true });
+  const extendedShapesRows = loadCsv("extended_shapes.txt", { optional: true, dir });
   const allShapesRows = shapesRows.concat(extendedShapesRows);
 
-  const routeById = Object.fromEntries(
-    routesRows.map((r) => [r.route_id, `${r.route_short_name} – ${r.route_long_name}`])
-  );
+  // rapid-bus-kl populates both name columns, so the canonical label stays
+  // "<short> – <long>". Other feeds in the pool do not: rapid-bus-mrtfeeder
+  // ships route_short_name="" with route_long_name="T117", which under a bare
+  // template renders as a leading " – T117". Fall back to whichever half is
+  // present, and to route_id if somehow neither is.
+  const routeLabel = (r) => {
+    const short = (r.route_short_name || "").trim();
+    const long = (r.route_long_name || "").trim();
+    if (short && long) return `${short} – ${long}`;
+    return short || long || r.route_id;
+  };
+
+  const routeById = Object.fromEntries(routesRows.map((r) => [r.route_id, routeLabel(r)]));
   const routeByTrip = Object.fromEntries(
     tripsRows.map((t) => [t.trip_id, routeById[t.route_id] || "Unknown"])
   );
 
+  // Secondary index for resolving the GTFS-RT `trip.route_id` field directly.
+  // Needed because the realtime feeds do not agree with their own static feeds:
+  // a live rapid-bus-mrtfeeder vehicle carries tripId "241209021024S2" while
+  // trips.txt only contains ids from the current service period ("260731…"),
+  // so the trip join misses entirely and every bus would read "Unknown". That
+  // same vehicle does carry routeId "T105" — which matches route_long_name,
+  // NOT route_id (30000143) — so index route_id AND both name columns.
+  const routeByRtRouteId = {};
+  for (const r of routesRows) {
+    const label = routeLabel(r);
+    const short = (r.route_short_name || "").trim();
+    const long = (r.route_long_name || "").trim();
+    routeByRtRouteId[r.route_id] = label;
+    if (short) routeByRtRouteId[short] = label;
+    if (long) routeByRtRouteId[long] = label;
+  }
+
   // Learned-route labels: bus_id → label, for buses promoted from unknown.
-  const extendedRoutesRows = loadCsv("extended_routes.txt", { optional: true });
+  const extendedRoutesRows = loadCsv("extended_routes.txt", { optional: true, dir });
   const learnedRouteByBus = {};
   for (const r of extendedRoutesRows) {
     if (r.route_id && r.route_id.startsWith("LRN_")) {
@@ -292,7 +331,15 @@ function loadGtfsStatic() {
       `${Object.keys(shapesById).length} shapes`
   );
 
-  return { routeById, routeByTrip, learnedRouteByBus, shapesById, shapesByRoute, routeByShape };
+  return {
+    routeById,
+    routeByTrip,
+    routeByRtRouteId,
+    learnedRouteByBus,
+    shapesById,
+    shapesByRoute,
+    routeByShape,
+  };
 }
 
 // Mutable bundle so `reloadGtfsStatic()` can swap atomically. Endpoints read
@@ -316,6 +363,14 @@ function reloadGtfsStatic() {
   gtfs = loadGtfsStatic();
   snapper = createSnapper(gtfs.shapesById, gtfs.shapesByRoute);
 }
+
+// This process collects exactly ONE feed source, fixed at boot. There is no
+// runtime switching and deliberately no second "active" bundle: `gtfs` and
+// `snapper` above serve the live tick and the historical endpoints alike,
+// because every row this process ever writes or reads comes from the same
+// agency. To collect a different city, start another process with FEED_SOURCE
+// and its own DATA_DIR / GTFS_DIR. See the note at the top of feed-sources.js.
+const FEED_SOURCE = feedSources.activeSource();
 
 // ──────────────────────────────────────────────────────────────────────────
 // Position history + speed calculation. State lives entirely in this process
@@ -555,9 +610,10 @@ const FEED_RETRY_BACKOFFS_MS = config.FEED_RETRY_BACKOFFS_MS;
 
 async function fetchFeedBytes() {
   let lastErr = null;
+  const url = feedSources.rtUrl(FEED_SOURCE);
   for (let attempt = 0; attempt < FEED_RETRY_BACKOFFS_MS.length; attempt++) {
     try {
-      const res = await fetch(FEED_URL, { timeout: 10000 });
+      const res = await fetch(url, { timeout: 10000 });
       if (!res.ok) throw new Error(`upstream returned ${res.status}`);
       return Buffer.from(await res.arrayBuffer());
     } catch (err) {
@@ -724,9 +780,14 @@ async function fetchFeedInner(now) {
   // Feed bytes and weather fetch in parallel — weather used to be awaited
   // serially after the feed, so a WeatherAPI hang stalled the whole tick
   // (every client served stale cache while fetchInFlight was held).
+  // weather.js is hard-pinned to KL coordinates (config.KL_CENTER), so only the
+  // KL collector may attach it. A Kuching collector stamping KL temperature on
+  // its rows would be indistinguishable from real data in the parquet and would
+  // silently poison the heat-island analysis. appendTick already writes four
+  // nulls when weather is null.
   const [buffer, tickWeather] = await Promise.all([
     fetchFeedBytes(),
-    getCurrentWeather(now),
+    feedSources.isPrimary() ? getCurrentWeather(now) : Promise.resolve(null),
   ]);
   const message = transit_realtime.FeedMessage.decode(buffer);
 
@@ -746,10 +807,21 @@ async function fetchFeedInner(now) {
     if (!v || !v.position) continue;
     const busId = v.vehicle ? v.vehicle.id || entity.id : entity.id;
     const tripId = v.trip ? v.trip.tripId : null;
-    const routeRaw = tripId ? gtfs.routeByTrip[tripId] || "Unknown" : "Unknown";
-    const route = routeRaw === "Unknown"
-      ? gtfs.learnedRouteByBus[busId] || "Unknown"
-      : routeRaw;
+    // Resolution cascade, most to least authoritative:
+    //   1. trip_id → trips.txt  (exact; how rapid-bus-kl has always resolved)
+    //   2. trip.route_id → routes.txt, by route_id or by either name column
+    //      (needed for feeds whose realtime trip_ids are stale — see the
+    //      routeByRtRouteId note in loadGtfsStatic)
+    //   3. the raw realtime route_id string, so a bus is labelled with
+    //      something real rather than discarded as Unknown
+    //   4. the learned LRN_<bus_id> label from the promotion pipeline
+    const rtRouteId = v.trip && v.trip.routeId ? String(v.trip.routeId).trim() : null;
+    let route = tripId ? gtfs.routeByTrip[tripId] : undefined;
+    if (!route || route === "Unknown") {
+      route = rtRouteId ? gtfs.routeByRtRouteId[rtRouteId] : undefined;
+    }
+    if (!route) route = rtRouteId || undefined;
+    if (!route) route = gtfs.learnedRouteByBus[busId] || "Unknown";
     const lat = v.position.latitude;
     const lon = v.position.longitude;
     // EXACT Python parity (busapp/pipeline.py:42-46):
@@ -889,7 +961,8 @@ async function fetchFeedInner(now) {
       pb.lon,
       tickSpeeds,
       pb.trust_score,
-      tickWeather
+      tickWeather,
+      FEED_SOURCE.id
     );
 
     buses.push({
@@ -928,7 +1001,10 @@ async function fetchFeedInner(now) {
   if (buses.length === 0) {
     feedEmptyCount += 1;
     lastFeedEmptyMs = now;
-    console.warn(`[feed] 0 vehicles returned from GTFS-RT (consecutive empty: ${feedEmptyCount})`);
+    console.warn(
+      `[feed] 0 vehicles returned from ${FEED_SOURCE.id} ` +
+        `(consecutive empty: ${feedEmptyCount})`
+    );
   } else {
     feedEmptyCount = 0; // reset on any non-empty tick
   }
@@ -1226,6 +1302,18 @@ app.get("/api/health", (_req, res) => {
     feed_failure_count: feedFailureCount,
     feed_success_count: feedSuccessCount,
     feed_empty_count: feedEmptyCount,
+    // Which upstream this process collects (fixed at boot), plus the latest
+    // sweep of EVERY known source. The sweep is the field that would have made
+    // the 2026-08-06 outage obvious on day one instead of after two months:
+    // it shows at a glance that rapid-bus-kl reports 0 while its siblings
+    // report hundreds.
+    feed_source: {
+      id: FEED_SOURCE.id,
+      label: FEED_SOURCE.label,
+      region: FEED_SOURCE.region,
+      is_primary: feedSources.isPrimary(),
+      monitor: feedSources.monitorStatus(),
+    },
     last_feed_failure_ms: lastFeedFailureMs || null,
     last_feed_success_ms: lastFeedSuccessMs || null,
     last_feed_empty_ms: lastFeedEmptyMs || null,
@@ -1843,8 +1931,20 @@ app.get("/api/clusters", async (req, res) => {
 async function replayTodaysData() {
   const today = klDate(Date.now());
   let rowCount = 0;
+  let skippedOtherSource = 0;
+  // Belt and braces. One process collects one source into its own DATA_DIR, so
+  // this file should only ever contain our own rows. The guard exists purely to
+  // catch a mis-set DATA_DIR pointing two collectors at the same directory —
+  // which would splice another agency's trail onto a bus sharing its id, since
+  // bus_id is only unique WITHIN an agency. Cheap insurance against a config
+  // mistake, not a routine code path.
+  const activeSourceId = FEED_SOURCE.id;
   await loadDate(today, (row) => {
     if (row.lat == null || row.lon == null) return;
+    if (row.feed_source && row.feed_source !== activeSourceId) {
+      skippedOtherSource += 1;
+      return;
+    }
     recordSample(row.bus_id, row.route, row.time, {
       raw: row.speed,
       calc: row.calculated_speed,
@@ -1870,8 +1970,13 @@ async function replayTodaysData() {
     recordSparkline(row.bus_id, { time: row.time, speed: row.speed, calculated_speed: row.calculated_speed, speed_kalman: row.speed_kalman, weighted_speed: row.weighted_speed, speed_corrected: row.speed_corrected });
     rowCount += 1;
   });
-  if (rowCount > 0) {
-    console.log(`[store] replayed ${rowCount.toLocaleString()} rows from ${today}.jsonl`);
+  if (rowCount > 0 || skippedOtherSource > 0) {
+    const skipNote = skippedOtherSource
+      ? ` (skipped ${skippedOtherSource.toLocaleString()} rows from other feed sources)`
+      : "";
+    console.log(
+      `[store] replayed ${rowCount.toLocaleString()} rows from ${today}.jsonl${skipNote}`
+    );
   }
 }
 
@@ -1888,12 +1993,33 @@ if (process.env.ENABLE_ROUTER === "true") {
 // unhandled rejection on Node ≥15 kills the process — one bad row in
 // today's JSONL would crash-loop every boot (same file replayed each time).
 // The server must come up cold-cache instead.
-replayTodaysData()
+// A non-primary collector points GTFS_DIR at its own (initially empty)
+// directory, so its static feed has to be fetched before the bundle loaded at
+// module scope is of any use. Primary is a no-op: gtfs_static/ is committed.
+async function bootstrapSourceGtfs() {
+  if (feedSources.isPrimary()) return;
+  if (fs.existsSync(path.join(GTFS_DIR, "routes.txt"))) return;
+  await feedSources.ensureStaticDir(FEED_SOURCE, GTFS_DIR);
+  reloadGtfsStatic();
+  console.log(`[gtfs] loaded ${FEED_SOURCE.id} bundle from ${GTFS_DIR}`);
+}
+
+bootstrapSourceGtfs()
+  .catch((err) => console.error("[startup] static GTFS bootstrap failed:", err.message))
+  .then(() => replayTodaysData())
   .catch((err) => console.error("[startup] replay failed (starting cold):", err))
   .finally(() => {
     app.listen(PORT, () => {
       console.log(`[busjs] listening on http://localhost:${PORT}`);
+      console.log(
+        `[busjs] collecting ${FEED_SOURCE.id} (${FEED_SOURCE.label}, ${FEED_SOURCE.region})` +
+          ` -> ${DATA_DIR}`
+      );
     });
+    // Watch every known source and report to /api/health. Observational only —
+    // it never changes what this process collects. This is what turns a silent
+    // upstream into a visible one.
+    feedSources.startMonitor();
     // SEQUENCED, not parallel: when a pending JSONL exists, startupMaintenance
     // scans the full history and now installs its model into the cross-day
     // cache, so the getCrossDayModel() call afterwards is a no-op cache hit.

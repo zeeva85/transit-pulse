@@ -19,6 +19,12 @@ gtfs_static/extended_shapes.txt
 gtfs_static/extended_routes.txt
 gtfs_static/unknown_observations.*
 
+# Data / GTFS directories for additional collectors started with
+# FEED_SOURCE + DATA_DIR + GTFS_DIR. Pure caches — a non-primary collector
+# re-downloads its static feed from api.data.gov.my on first boot.
+data-*/
+gtfs-*/
+
 # Credentials & keys (never want these in any repo, ever)
 *.pem
 *.key
@@ -64,11 +70,10 @@ coverage/
 tmp/
 temp/
 
-# Claude assistant files
-CLAUDE.md
-CLAUDE.local.md
+# Markdown notes stay local — never commit them.
+# Covers assistant files (CLAUDE.md), internal audit docs (SECURITY.md,
+# PRIVACY.md) and any generated review/scratch write-ups. README.md is the
+# one deliberate exception: it is this public repo's front page on GitHub.
+*.md
+!README.md
 .claude/
-
-# Internal audit docs (local only)
-SECURITY.md
-PRIVACY.md

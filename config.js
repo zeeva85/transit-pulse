@@ -113,6 +113,74 @@ const config = {
   FEED_RETRY_BACKOFFS_MS:   [1000, 2000, 4000],
   STALE_AGE_THRESHOLD_S:    90,
 
+  // ── Feed source registry ─────────────────────────────────────────────────────
+  // Used by: feed-sources.js (source selection + monitoring), server.js.
+  //
+  // WHY THIS EXISTS: on 2026-08-06 at 13:59 KL the upstream rapid-bus-kl
+  // vehicle-position feed stopped returning vehicles. It kept answering HTTP 200
+  // with a structurally valid, entity-less FeedMessage, so nothing errored and
+  // nothing alerted — the app simply collected zero rows for over two months
+  // before anyone noticed. Two other developers hit the same wall on 2026-08-13
+  // (data-gov-my/datagovmy-front#659); an identical outage from 2026-03-29
+  // (#638) is still unanswered.
+  //
+  // The registry has TWO ROLES, and the `kl` flag is what separates them:
+  //
+  //   1. COLLECTABLE (`kl: true`). Only these can be selected by the
+  //      FEED_SOURCE env var. This app is a Kuala Lumpur bus tracker — its
+  //      map, static GTFS, speed baselines, cross-day position model and every
+  //      analytic in it are KL. Collecting Penang would not repair KL
+  //      analytics, it would only pollute them. Two sources qualify:
+  //      rapid-bus-kl (trunk network) and rapid-bus-mrtfeeder (the T-prefixed
+  //      MRT feeder network, same operator, same Klang Valley coverage).
+  //      `ktmb` is rail and national, so it is monitored but not collectable.
+  //
+  //   2. MONITORED (all of them). The monitor sweeps every entry and reports
+  //      vehicle counts to /api/health. Keeping the non-KL feeds here costs
+  //      almost nothing (an empty feed is 15 bytes, swept every 10 min) and is
+  //      what makes the diagnosis possible at all: on 2026-08-15 08:07 KL the
+  //      sweep read rapid-bus-kl = 0 while all 13 siblings carried 24-153
+  //      buses. Without the comparison you cannot tell "our feed is broken"
+  //      from "it is 3 a.m. and nothing is running" — every Malaysian feed
+  //      legitimately drains to zero overnight.
+  //
+  // It is NOT an automatic failover chain. Runtime source-swapping was built
+  // and removed — see the long note at the top of feed-sources.js. To collect
+  // another city, run another process with its own DATA_DIR.
+  //
+  // `path` is the URL suffix shared by BOTH api.data.gov.my endpoints:
+  //     realtime → https://api.data.gov.my/gtfs-realtime/vehicle-position/<path>
+  //     static   → https://api.data.gov.my/gtfs-static/<path>
+  // `region` is informational (shown in /api/health).
+  // NOTE: `rapid-bus-kuantan` is documented by data.gov.my but now returns
+  // HTTP 404 — deliberately omitted rather than left in to fail every probe.
+  FEED_SOURCES: [
+    { id: "rapid-bus-kl",           label: "Rapid Bus KL",          region: "Kuala Lumpur", path: "prasarana?category=rapid-bus-kl", kl: true },
+    { id: "rapid-bus-mrtfeeder",    label: "MRT Feeder Bus",        region: "Kuala Lumpur", path: "prasarana?category=rapid-bus-mrtfeeder", kl: true },
+    { id: "rapid-bus-penang",       label: "Rapid Bus Penang",      region: "Penang",       path: "prasarana?category=rapid-bus-penang" },
+    { id: "mybas-johor",            label: "BAS.MY Johor Bahru",    region: "Johor",        path: "mybas-johor" },
+    { id: "mybas-melaka",           label: "BAS.MY Melaka",         region: "Melaka",       path: "mybas-melaka" },
+    { id: "mybas-seremban-a",       label: "BAS.MY Seremban A",     region: "Negeri Sembilan", path: "mybas-seremban-a" },
+    { id: "mybas-seremban-b",       label: "BAS.MY Seremban B",     region: "Negeri Sembilan", path: "mybas-seremban-b" },
+    { id: "mybas-ipoh",             label: "BAS.MY Ipoh",           region: "Perak",        path: "mybas-ipoh" },
+    { id: "mybas-alor-setar",       label: "BAS.MY Alor Setar",     region: "Kedah",        path: "mybas-alor-setar" },
+    { id: "mybas-kangar",           label: "BAS.MY Kangar",         region: "Perlis",       path: "mybas-kangar" },
+    { id: "mybas-kota-bharu",       label: "BAS.MY Kota Bharu",     region: "Kelantan",     path: "mybas-kota-bharu" },
+    { id: "mybas-kuala-terengganu", label: "BAS.MY Kuala Terengganu", region: "Terengganu", path: "mybas-kuala-terengganu" },
+    { id: "mybas-kuching",          label: "BAS.MY Kuching",        region: "Sarawak",      path: "mybas-kuching" },
+    { id: "ktmb",                   label: "KTMB Komuter",          region: "National (rail)", path: "ktmb" },
+  ],
+  // FEED_MONITOR_INTERVAL_MS: how often to sweep EVERY source and report its
+  //   vehicle count to /api/health. Purely observational — the collector never
+  //   changes source at runtime (see the long note at the top of
+  //   feed-sources.js). This sweep is the actual fix for the 2026-08-06
+  //   incident: it makes a silent feed visible within minutes instead of two
+  //   months. Keep it modest; 14 serial probes run on each sweep.
+  // FEED_PROBE_TIMEOUT_MS: per-probe timeout. Probes are cheap (an empty feed
+  //   is 15 bytes) but run in series across all sources, so keep it short.
+  FEED_MONITOR_INTERVAL_MS: 10 * 60_000,
+  FEED_PROBE_TIMEOUT_MS:    8_000,
+
   // ── Position history (live trail) ───────────────────────────────────────────
   // Used by: server.js (positionHistory deque, trail rendering).
   // MAX_POSITION_HISTORY: how many recent positions are kept per bus for trail
