@@ -60,7 +60,8 @@
       border-radius: 10px; padding: 16px 18px; margin-bottom: 28px;
       border: 1px solid transparent; font-size: 14.5px;
     }
-    .verdict strong { display: block; font-size: 16px; margin-bottom: 4px; }
+    .verdict .v-title { display: block; font-size: 16px; font-weight: 650; margin-bottom: 4px; }
+    .verdict strong { font-weight: 650; }   /* inline emphasis stays inline */
     .verdict.ok    { background: rgba(34,197,94,0.10);  border-color: rgba(34,197,94,0.35);  color: #86efac; }
     .verdict.warn  { background: rgba(245,158,11,0.10); border-color: rgba(245,158,11,0.40); color: #fcd34d; }
     .verdict.error { background: rgba(239,68,68,0.10);  border-color: rgba(239,68,68,0.40);  color: #fca5a5; }
@@ -69,7 +70,8 @@
     body.light-mode .verdict.warn  { color: #b45309; }
     body.light-mode .verdict.error { color: #b91c1c; }
 
-    h2 { font-size: 15px; font-weight: 600; margin: 28px 0 10px; color: #c9d1d9; }
+    h2 { font-size: 15px; font-weight: 600; margin: 32px 0 8px; color: #c9d1d9; }
+    .table-wrap { overflow-x: auto; }
     body.light-mode h2 { color: #374151; }
 
     table { width: 100%; border-collapse: collapse; font-size: 14px; }
@@ -78,12 +80,16 @@
       letter-spacing: 0.04em; color: #8b949e; padding: 8px 10px;
       border-bottom: 1px solid rgba(255,255,255,0.12);
     }
-    td { padding: 9px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+    td { padding: 10px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); line-height: 1.35; vertical-align: middle; }
+    th:nth-child(2), td:nth-child(2) { white-space: nowrap; }
     body.light-mode th { color: #6b7280; border-bottom-color: #d1d5db; }
     body.light-mode td { border-bottom-color: #e5e7eb; }
     tr.is-ours { background: rgba(121,184,255,0.07); }
     tr.is-ours td:first-child { font-weight: 600; }
-    td.num { text-align: right; font-variant-numeric: tabular-nums; width: 90px; }
+    td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; width: 84px; }
+    td.num { font-weight: 600; font-size: 15px; }
+    /* Status column: fixed so the pills line up down the table. */
+    table th:last-of-type { width: 84px; }
 
     .pill {
       display: inline-block; padding: 1px 8px; border-radius: 999px;
@@ -93,6 +99,14 @@
     .pill.zero { background: rgba(245,158,11,0.16); color: #fbbf24; }
     .pill.down { background: rgba(239,68,68,0.16);  color: #f87171; }
     .pill.ours { background: rgba(121,184,255,0.16); color: #79b8ff; margin-left: 6px; }
+
+    .svc { font-weight: 600; line-height: 1.3; }
+    .fid {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 11.5px; color: #8b949e; margin-top: 1px;
+    }
+    body.light-mode .fid { color: #6b7280; }
+    .h2-sub { font-weight: 400; color: #8b949e; }
 
     .note { color: #8b949e; font-size: 13px; margin-top: 18px; }
     body.light-mode .note { color: #6b7280; }
@@ -131,34 +145,34 @@
 <main>
   <h1>Feed status</h1>
   <p class="subtitle">
-    Live vehicle counts for every Malaysian GTFS-realtime feed published by
-    data.gov.my. A feed reading zero only means something when compared against
-    the others, since they all wind down overnight.
+    How many buses each Malaysian transit feed is reporting right now. Every
+    feed goes quiet overnight, so one showing zero only matters when the
+    others are busy.
   </p>
 
-  <div id="verdict" class="verdict load"><strong>Checking…</strong>Loading the latest sweep.</div>
+  <div id="verdict" class="verdict load"><span class="v-title">Checking…</span>Fetching the latest counts.</div>
 
-  <h2>Kuala Lumpur — what this app collects</h2>
-  <table>
+  <h2>Kuala Lumpur</h2>
+  <div class="table-wrap"><table>
     <thead>
-      <tr><th>Feed</th><th>Network</th><th>Status</th><th class="num">Buses</th></tr>
+      <tr><th>Service</th><th>Status</th><th class="num">Buses</th></tr>
     </thead>
     <tbody id="kl-rows"></tbody>
-  </table>
+  </table></div>
 
-  <h2>Everywhere else — monitored for comparison only</h2>
-  <table>
+  <h2>Rest of Malaysia <span class="h2-sub">— shown for comparison</span></h2>
+  <div class="table-wrap"><table>
     <thead>
-      <tr><th>Feed</th><th>Region</th><th>Status</th><th class="num">Buses</th></tr>
+      <tr><th>Service</th><th>Region</th><th>Status</th><th class="num">Buses</th></tr>
     </thead>
     <tbody id="other-rows"></tbody>
-  </table>
+  </table></div>
 
   <p class="note" id="swept-note"></p>
   <p class="note">
-    Counts refresh server-side every 10 minutes. <code>0</code> means the feed
-    answered normally but reported no vehicles; <code>unreachable</code> means
-    the request itself failed. Data from
+    Counts update every 10 minutes. <strong>0</strong> means the feed replied
+    but had no buses in it. <strong>Unreachable</strong> means the request
+    failed. Data from
     <a href="https://developer.data.gov.my/realtime-api/gtfs-realtime">data.gov.my</a>.
   </p>
 </main>

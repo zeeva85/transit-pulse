@@ -23,11 +23,20 @@
     });
   }
 
-  function row(src, isOurs, secondCol) {
+  // Lead with the human name; the machine id goes underneath in small mono type.
+  // Leading with the id was both ugly and made the "collecting" pill run
+  // straight into it ("rapid-bus-mrtfeedercollecting").
+  function row(src, isOurs, regionCol) {
+    var name = src.label || src.id;
     return (
       '<tr class="' + (isOurs ? "is-ours" : "") + '">' +
-      "<td>" + esc(src.id) + (isOurs ? '<span class="pill ours">collecting</span>' : "") + "</td>" +
-      "<td>" + esc(secondCol) + "</td>" +
+      "<td>" +
+        '<div class="svc">' + esc(name) +
+          (isOurs ? ' <span class="pill ours">on the map</span>' : "") +
+        "</div>" +
+        '<div class="fid">' + esc(src.id) + "</div>" +
+      "</td>" +
+      (regionCol === null ? "" : "<td>" + esc(regionCol) + "</td>") +
       "<td>" + statusPill(src.vehicles) + "</td>" +
       '<td class="num">' + (src.vehicles < 0 ? "&mdash;" : src.vehicles) + "</td>" +
       "</tr>"
@@ -36,7 +45,7 @@
 
   function setVerdict(cls, title, body) {
     VERDICT.className = "verdict " + cls;
-    VERDICT.innerHTML = "<strong>" + esc(title) + "</strong>" + body;
+    VERDICT.innerHTML = '<span class="v-title">' + esc(title) + "</span>" + body;
   }
 
   // The whole point of the page: is the feed WE COLLECT dead, or is the country
@@ -47,42 +56,42 @@
     var active = kl.filter(function (s) { return s.id === activeId; })[0];
     var klDown = kl.filter(function (s) { return s.vehicles === 0; });
 
+    var nameOf = function (s) { return esc(s.label || s.id); };
+
     if (active && active.vehicles > 0) {
       var extra = klDown.length
-        ? " Note that " +
-          klDown.map(function (s) { return esc(s.id); }).join(" and ") +
-          " is still reporting nothing."
+        ? " " + klDown.map(nameOf).join(" and ") + " is still down."
         : "";
       setVerdict(
         "ok",
-        "Collecting normally",
-        "This site is collecting <strong>" + esc(active.id) + "</strong>, currently carrying " +
-          active.vehicles + " buses." + extra
+        "The map is live",
+        "Showing <strong>" + nameOf(active) + "</strong>, which is reporting " +
+          active.vehicles + " buses right now." + extra
       );
       return;
     }
 
     var sibling = kl.filter(function (s) { return s.id !== activeId && s.vehicles > 0; })[0];
+    var activeName = active ? nameOf(active) : esc(activeId);
+
     if (othersLive.length > others.length / 2) {
       setVerdict(
         "error",
-        "Upstream outage — the feed this site collects is down",
-        "<strong>" + esc(activeId) + "</strong> is reporting <strong>0 vehicles</strong>, while " +
-          othersLive.length + " of " + others.length +
-          " feeds elsewhere in Malaysia are carrying buses" +
-          (sibling
-            ? ", including " + esc(sibling.id) + " in the same city (" + sibling.vehicles + " buses)"
-            : "") +
-          ". That rules out a quiet period &mdash; the problem is upstream at " +
-          "data.gov.my, not with this site. The live map will stay empty until it returns."
+        activeName + " has stopped reporting",
+        "It is showing no buses at all, while " + othersLive.length + " of " +
+          others.length + " other feeds around Malaysia are running normally" +
+          (sibling ? ", including " + nameOf(sibling) + " here in Kuala Lumpur" : "") +
+          ". So this is not just a quiet time of day. The problem is at " +
+          "data.gov.my, not with this site, and the map will stay empty until " +
+          "they fix it."
       );
       return;
     }
     setVerdict(
       "warn",
-      "Quiet period — most feeds are empty",
-      esc(activeId) + " reports no vehicles, but so do most feeds across Malaysia. " +
-        "Services wind down overnight, so this is probably normal rather than an outage."
+      "All quiet",
+      activeName + " is showing no buses, but so are most other feeds around " +
+        "Malaysia. Services stop overnight, so this is normal."
     );
   }
 
@@ -92,7 +101,7 @@
     var sources = monitor.sources || [];
 
     if (!sources.length) {
-      setVerdict("load", "No sweep yet", "The server sweeps every feed shortly after start-up. Try again in a minute.");
+      setVerdict("load", "Not checked yet", "The server checks every feed shortly after starting up. Try again in a minute.");
       return;
     }
 
@@ -106,10 +115,10 @@
     var others = sources.filter(function (s) { return klIds.indexOf(s.id) === -1; });
 
     KL_ROWS.innerHTML = kl
-      .map(function (s) { return row(s, fs && s.id === fs.id, s.label || ""); })
+      .map(function (s) { return row(s, !!(fs && s.id === fs.id), null); })
       .join("");
     OTHER_ROWS.innerHTML = others
-      .map(function (s) { return row(s, false, s.region || ""); })
+      .map(function (s) { return row(s, false, s.region || "—"); })
       .join("");
 
     renderVerdict(kl, others, (fs && fs.id) || "");
@@ -117,7 +126,7 @@
     if (monitor.last_sweep_ms) {
       var mins = Math.round((Date.now() - monitor.last_sweep_ms) / 60000);
       SWEPT.textContent =
-        "Last checked " + (mins < 1 ? "less than a minute" : mins + " minute" + (mins === 1 ? "" : "s")) + " ago.";
+        mins < 1 ? "Checked just now." : "Checked " + mins + " minute" + (mins === 1 ? "" : "s") + " ago.";
     }
   }
 
@@ -126,7 +135,7 @@
       .then(function (r) { return r.json(); })
       .then(render)
       .catch(function () {
-        setVerdict("error", "Could not reach the server", "The status endpoint did not respond.");
+        setVerdict("error", "Could not reach the server", "This page could not load the latest counts.");
       });
   }
 
