@@ -1683,30 +1683,20 @@ input:focus-visible {
   backdrop-filter: blur(8px) saturate(140%);
   -webkit-backdrop-filter: blur(8px) saturate(140%);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 7px 12px 8px;
-  pointer-events: none;
-  text-align: right;
+  border-radius: var(--radius-ctl);
+  padding: 5px 10px;
+  font-size: 11px;
+  color: var(--ink-2);
+  white-space: nowrap;
+  cursor: default; /* keeps the explanatory tooltip reachable */
 }
 .median-overlay[hidden] { display: none; }
-.mo-value {
-  font-size: 22px;
+.median-overlay strong {
+  font-size: 12px;
   font-weight: 650;
-  line-height: 1;
   color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
-.mo-unit { font-size: 11px; color: var(--ink-3); }
-.mo-label {
-  display: block;
-  margin-top: 3px;
-  font-size: 9px;
-  font-weight: 650;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  color: var(--ink-3);
-  white-space: nowrap;
-}
 body.light-mode .median-overlay { background: rgba(255,255,255,0.92); }
 /* Cluster chips share the corner — drop them below when the readout shows. */
-#map:has(.median-overlay:not([hidden])) #cluster-filter { top: 68px; }
+#map:has(.median-overlay:not([hidden])) #cluster-filter { top: 44px; }

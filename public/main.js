@@ -448,8 +448,8 @@ function updateMedianOverlay() {
   document.getElementById("median-speed").textContent = Math.round(
     speeds[Math.floor(speeds.length / 2)]
   );
-  document.getElementById("median-mode").textContent =
-    `median · ${SPEED_MODE_LABELS[state.speedSource] || state.speedSource} · moving buses`;
+  // Which estimator feeds the number lives in the tooltip, not on the map.
+  box.title = `Median of ${SPEED_MODE_LABELS[state.speedSource] || state.speedSource} speed across moving buses`;
   box.hidden = false;
 }
 
