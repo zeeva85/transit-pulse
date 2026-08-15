@@ -30,8 +30,11 @@
   <header>
     <div class="header-brand">
       <div class="header-brand-meta">
-        <h1>KL.my Bus Tracker</h1>
-        <span id="header-date" class="header-date">—</span>
+        <h1><span class="brand-accent">KL.my</span> Bus Tracker</h1>
+        <span class="header-status">
+          <span class="live-dot" aria-hidden="true"></span>
+          <span id="header-date" class="header-date">—</span>
+        </span>
       </div>
       <pre class="bus-art" style="display:none;opacity:0">   __________________________
   (_________________________@)
@@ -51,8 +54,8 @@
     </div>
     <div class="header-right">
       <div class="header-stats">
-        <strong id="bus-count">—</strong><span class="hstat-label">buses</span>
-        <strong id="route-count">—</strong><span class="hstat-label">routes</span>
+        <span class="hstat"><strong id="bus-count">—</strong><span class="hstat-label">buses</span></span>
+        <span class="hstat"><strong id="route-count">—</strong><span class="hstat-label">routes</span></span>
       </div>
       <button id="mobile-sidebar-btn" class="hamburger-btn" type="button" title="Filters &amp; controls" aria-label="Open filters and controls">&#8942;</button>
       <button id="theme-toggle" class="theme-toggle-btn" type="button" title="Toggle light/dark mode" aria-label="Toggle light and dark mode">
@@ -343,18 +346,13 @@
 
     </div><!-- #content-col -->
 
-    <section id="dropdown-section">
-      <h2 class="section-title">
-        Select a bus
-        <span class="hint">drives the detailed timeline below</span>
-      </h2>
-      <select id="bus-dropdown-bottom">
-        <option value="">— Select a bus —</option>
-      </select>
-    </section>
-
     <section id="timeline-section">
-      <h2 class="section-title">Detailed Bus Timeline</h2>
+      <div class="card-head">
+        <h2 class="section-title">Bus Timeline</h2>
+        <select id="bus-dropdown-bottom" aria-label="Select a bus for the detailed timeline">
+          <option value="">— Select a bus —</option>
+        </select>
+      </div>
       <div class="timeline-stats" id="timeline-stats-bottom" hidden>
         <div class="stat">
           <div class="stat-label">Avg Speed</div>
@@ -431,14 +429,14 @@
   </div>
 </div>
 
-<footer style="grid-area:footer;text-align:center;padding:20px 24px;font-size:12px;color:#4a5568;border-top:1px solid rgba(255,255,255,0.06)">
-  <a href="/status" style="color:#79b8ff;text-decoration:none">Feed Status</a>
-  &nbsp;&middot;&nbsp;
-  <a href="/privacy" style="color:#79b8ff;text-decoration:none">Privacy Policy</a>
-  &nbsp;&middot;&nbsp;
+<footer id="site-footer">
+  <a href="/status">Feed Status</a>
+  <span class="foot-sep">&middot;</span>
+  <a href="/privacy">Privacy Policy</a>
+  <span class="foot-sep">&middot;</span>
   &copy; 2026 Seevasant Indran
   <br>
-  <span style="font-size:11px;margin-top:4px;display:inline-block">
+  <span class="foot-credits">
     Data: data.gov.my &nbsp;&middot;&nbsp; Weather: WeatherAPI &nbsp;&middot;&nbsp; Maps: © Carto · © OSM contributors
   </span>
 </footer>
