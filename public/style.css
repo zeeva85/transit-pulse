@@ -712,6 +712,22 @@ table.bus-table {
   vertical-align: middle;
 }
 .bus-table .sparkline polyline { stroke: var(--accent); }
+/* Sparkline + current speed, one cell: trend on the left, the number
+   right-aligned in tabular figures so the column reads like a table. */
+.bus-table .trend-cell {
+  white-space: nowrap;
+}
+.bus-table .trend-cell .sparkline { margin-right: 8px; }
+.bus-table .spark-speed {
+  display: inline-block;
+  min-width: 3ch;
+  text-align: right;
+  vertical-align: middle;
+  font-size: 12px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
 
 /* ==================== Map ==================== */
 #map {
@@ -1653,4 +1669,63 @@ input:focus-visible {
   .kpi-value { font-size: 21px; }
   #content-col { grid-row: 2; }
   #table-section { grid-row: 3; }
+}
+
+/* ================================================================
+   MOBILE UX PASS (≤ 768 px)
+   ================================================================ */
+@media (max-width: 768px) {
+  /* Header: drop the stat chips — the KPI band directly below shows the
+     same numbers, and five items don't fit a 64px bar on a 390px phone. */
+  .header-stats { display: none; }
+
+  /* The map is the product on a phone — make it the hero, not a letterbox. */
+  #map { height: 52vh; min-height: 300px; max-height: none; }
+
+  /* iOS zooms the page into any focused control with font-size < 16px.
+     Every tap on the route search was zooming the whole layout. */
+  #sidebar select,
+  #sidebar input[type="number"],
+  #sidebar input[type="text"],
+  .bus-table-search-row input,
+  .card-head select,
+  .hamburger-panel select,
+  .hamburger-panel input[type="number"],
+  #trip-origin, #trip-destination {
+    font-size: 16px;
+  }
+
+  /* Touch targets: 26px-tall buttons are a stylus UI. ~40px minimum. */
+  .period-btn, .view-btn { min-height: 38px; }
+  .date-cal-trigger { min-height: 42px; }
+  .date-cal-day { min-height: 34px; }
+  .admin-btn, .spd-unit-btn { min-height: 38px; }
+  .theme-toggle-btn, .hamburger-btn { width: 38px; height: 38px; }
+  .cluster-chip { padding: 6px 10px; }
+
+  /* Bus picker goes full-width inside the timeline card header. */
+  .card-head select { width: 100%; max-width: none; }
+
+  /* Heatmap: momentum scrolling for the wide chart. */
+  #heatmap-section { -webkit-overflow-scrolling: touch; }
+
+  /* Bigger tap rows in the bus table. */
+  .bus-table tbody td { padding: 9px 10px; }
+}
+
+/* Scrim behind the mobile sidebar drawer — the drawer floated over live
+   content with nothing separating the layers. Pure CSS via :has(). */
+@media (max-width: 768px) {
+  body:has(#sidebar.mobile-open)::after {
+    content: "";
+    position: fixed;
+    inset: 64px 0 0 0;
+    background: rgba(8, 10, 15, 0.55);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    z-index: 140; /* below the drawer (150), above everything else */
+  }
+  body.light-mode:has(#sidebar.mobile-open)::after {
+    background: rgba(40, 45, 55, 0.35);
+  }
 }

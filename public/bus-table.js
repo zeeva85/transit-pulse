@@ -163,7 +163,7 @@
       const msg = query ? "No routes match “" + escapeHtml(query) + "”." : "No buses available.";
       const cols = 2;
       tbody.innerHTML =
-        `<tr><td colspan=”${cols}” style=”padding: 20px; text-align: center; opacity: 0.6;”>${msg}</td></tr>`;
+        `<tr><td colspan="${cols}" style="padding: 20px; text-align: center; opacity: 0.6;">${msg}</td></tr>`;
       return;
     }
 
@@ -192,9 +192,12 @@
         `<span class="${statusClass}">${statusLabel}${staleSuffix}</span>` +
         (bus.timestamp ? ` · ${formatLastSeen(bus.timestamp)}` : "") +
         `</span></td>`;
+      const speedTxt =
+        speedNum != null && Number.isFinite(speedNum) ? Math.round(speedNum) : "—";
       tr.innerHTML =
         routeCell +
-        `<td>${sparklineSvg(trend)}</td>`;
+        `<td class="trend-cell">${sparklineSvg(trend)}` +
+        `<span class="spark-speed">${speedTxt}</span></td>`;
       tr.addEventListener("click", () => {
         if (onSelectBus) onSelectBus(selectedBusId === bus.bus_id ? null : bus.bus_id);
       });
